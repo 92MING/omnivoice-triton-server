@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+pydantic>=2
+pydantic-settings>=2
+python-multipart
+httpx
+numpy
+regex
+jieba
+torch
+torchaudio
+soundfile
+triton
+transformers
+accelerate
+pydub
+concurrent-log-handler

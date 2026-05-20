@@ -1,0 +1,59 @@
+# Local runtime output
+tmp/
+logs/
+run/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Local models and large exported artifacts
+/models/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+*.engine
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / local config
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Large generated media and test outputs
+*.wav
+*.pcm
+*.mp3
+*.flac
+*.opus
+*.aac
+*.sse
+*.headers
