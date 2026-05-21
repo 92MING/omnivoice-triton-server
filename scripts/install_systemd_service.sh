@@ -121,7 +121,7 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   exit 2
 fi
 
-if [[ ! -d "$WORKING_DIR/src" ]]; then
+if [[ ! -d "$WORKING_DIR/omnivoice-triton-server" ]]; then
   echo "Working directory does not look like this repo: $WORKING_DIR" >&2
   exit 2
 fi
@@ -143,7 +143,7 @@ service_tmp="$tmpdir/${SERVICE_NAME}.service"
   echo "export CUDA_VISIBLE_DEVICES=$(shell_quote "$CUDA_VISIBLE_DEVICES_VALUE")"
   echo "export PYTHONDONTWRITEBYTECODE=\${PYTHONDONTWRITEBYTECODE:-1}"
   echo "export PYTHONUNBUFFERED=\${PYTHONUNBUFFERED:-1}"
-  echo "export PYTHONPATH=$(shell_quote "$WORKING_DIR/src")\${PYTHONPATH:+:\$PYTHONPATH}"
+  echo "export PYTHONPATH=$(shell_quote "$WORKING_DIR/omnivoice-triton-server:$WORKING_DIR")\${PYTHONPATH:+:\$PYTHONPATH}"
   for env_line in "${EXTRA_ENV[@]}"; do
     key="${env_line%%=*}"
     value="${env_line#*=}"

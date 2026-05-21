@@ -85,7 +85,7 @@ omnivoice-triton-server install-service \
 
 - `omnivoice-server`：API、路由、socket IPC、调度、metrics、部署脚本、测试。
 - `omnivoice-triton`：Triton/hybrid 推理后端和 CUDA/Triton 加速代码。
-- `k2-fsa/OmniVoice`：`src/modeling` 下选取的模型与运行时代码。
+- `k2-fsa/OmniVoice`：`omnivoice-triton-server/modeling` 下选取的模型与运行时代码。
 
 这样做的原因是 chunking、调度、graph capture 和模型调用需要一起调。
 
@@ -145,7 +145,7 @@ scripts/install_systemd_service.sh \
 - `--max-clone-audio-prompt-cache`
 - `--text-chunk-*`
 
-所有设置也可以用 `OMNIVOICE_*` 环境变量覆盖。默认值在 `src/config.py`。
+所有设置也可以用 `OMNIVOICE_*` 环境变量覆盖。默认值在 `omnivoice-triton-server/config.py`。
 
 ## Benchmark
 
@@ -192,7 +192,7 @@ scripts/install_systemd_service.sh \
 ## 测试
 
 ```bash
-PYTHONPATH=src python tests/test_chunking.py
+PYTHONPATH=omnivoice-triton-server python tests/test_chunking.py
 python tests/test_api.py
 python tests/load_1000_rps100.py --total 1000 --rate 100 --concurrency-limit 512
 python tests/load_mixed_1000.py --total 1000 --rate 100 --ref-audio /path/to/ref.wav

@@ -233,11 +233,11 @@ curl -X POST http://127.0.0.1:9194/v1/audio/clone \
 
 - OmniVoice model card: https://huggingface.co/k2-fsa/OmniVoice
 - OmniVoice official README, non-verbal and pronunciation control: https://github.com/k2-fsa/OmniVoice#non-verbal--pronunciation-control
-- Current server implementation for standalone non-verbal tag tokenization: `src/modeling/models/omnivoice.py`
+- Current server implementation for standalone non-verbal tag tokenization: `omnivoice-triton-server/modeling/models/omnivoice.py`
 
 ## Supported Languages
 
-The table below is generated from `src/modeling/utils/lang_map.py`. Pass either the `language` ID or the English language name.
+The table below is generated from `omnivoice-triton-server/modeling/utils/lang_map.py`. Pass either the `language` ID or the English language name.
 
 Total languages: 646.
 

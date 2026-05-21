@@ -153,19 +153,15 @@ def _patch_decoder_layer_forward(layer: nn.Module) -> None:
 
 
 def _detect_sage_kernel() -> tuple:
-    """Select the best SageAttention CUDA kernel for the current GPU.
+    """Select the SageAttention entry point for the installed package version.
 
     Returns:
-        (kernel_fn, pv_accum_dtype) or (None, None) if unavailable.
+        (kernel_fn, extra_kwargs) or (None, None) if unavailable.
     """
     import torch
 
     try:
-        from sageattention.core import (
-            sageattn_qk_int8_pv_fp8_cuda,
-            sageattn_qk_int8_pv_fp8_cuda_sm90,
-            sageattn_qk_int8_pv_fp16_cuda,
-        )
+        from sageattention import sageattn
     except ImportError:
         return None, None
 
@@ -175,18 +171,9 @@ def _detect_sage_kernel() -> tuple:
     major, minor = torch.cuda.get_device_capability()
     arch = major * 10 + minor
 
-    if arch >= 120:  # Blackwell
-        logger.info("SageAttention: SM%d (Blackwell) FP8 kernel", arch)
-        return sageattn_qk_int8_pv_fp8_cuda, "fp32+fp32"
-    if arch >= 90:  # Hopper
-        logger.info("SageAttention: SM%d (Hopper) FP8 kernel", arch)
-        return sageattn_qk_int8_pv_fp8_cuda_sm90, "fp32+fp32"
-    if arch == 89:  # Ada Lovelace
-        logger.info("SageAttention: SM%d (Ada) FP8 kernel", arch)
-        return sageattn_qk_int8_pv_fp8_cuda, "fp32+fp32"
-    if arch >= 80:  # Ampere
-        logger.info("SageAttention: SM%d (Ampere) FP16 kernel", arch)
-        return sageattn_qk_int8_pv_fp16_cuda, "fp32"
+    if arch >= 80:
+        logger.info("SageAttention: SM%d generic sageattn kernel", arch)
+        return sageattn, {}
 
     logger.warning("SageAttention: SM%d < SM80, not supported", arch)
     return None, None
@@ -216,7 +203,7 @@ def _patch_attention_sage(attn: nn.Module) -> None:
     """
     import torch.nn.functional as F
 
-    sage_fn, pv_accum_dtype = _get_sage_kernel()
+    sage_fn, sage_kwargs = _get_sage_kernel()
     if sage_fn is None:
         logger.warning("No SageAttention kernel available, skipping patch")
         return
@@ -282,7 +269,7 @@ def _patch_attention_sage(attn: nn.Module) -> None:
                 tensor_layout="HND",
                 is_causal=True,
                 qk_quant_gran="per_warp",
-                pv_accum_dtype=pv_accum_dtype,
+                **sage_kwargs,
             )
 
             if isinstance(attn_output, tuple):

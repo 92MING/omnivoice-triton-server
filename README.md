@@ -123,7 +123,7 @@ This repository combines three code lines into one deployable service:
 - `omnivoice-triton`: Triton/hybrid inference backend pieces and CUDA/Triton
   acceleration code.
 - `k2-fsa/OmniVoice`: selected OmniVoice model/runtime code under
-  `src/modeling`.
+  `omnivoice-triton-server/modeling`.
 
 The code is kept in a single tree because scheduling, chunking, graph capture,
 and model invocation need to be tuned together. This is not a clean upstream
@@ -183,7 +183,7 @@ CPU inferer code was removed. Scale this server with GPU inferer processes.
 - `--log-dir`, `--log-run-id`, `--log-file`, `--pid-file`: runtime log layout.
 
 All settings can also be set with `OMNIVOICE_*` environment variables.
-Python defaults live in `src/config.py`; shell scripts do not define service
+Python defaults live in `omnivoice-triton-server/config.py`; shell scripts do not define service
 defaults.
 
 ## API
@@ -290,10 +290,12 @@ plan to fit available VRAM.
 
 ```bash
 python -m py_compile \
-  src/app.py src/audio.py src/chunking.py src/config.py src/infer_client.py \
-  src/inferer.py src/launcher.py src/protocol.py
+  omnivoice-triton-server/app.py omnivoice-triton-server/audio.py \
+  omnivoice-triton-server/chunking.py omnivoice-triton-server/config.py \
+  omnivoice-triton-server/infer_client.py omnivoice-triton-server/inferer.py \
+  omnivoice-triton-server/launcher.py omnivoice-triton-server/protocol.py
 
-PYTHONPATH=src python tests/test_chunking.py
+PYTHONPATH=omnivoice-triton-server python tests/test_chunking.py
 python tests/test_api.py
 python tests/load_1000_rps100.py --total 1000 --rate 100 --concurrency-limit 512
 python tests/load_mixed_1000.py --total 1000 --rate 100 --ref-audio /path/to/ref.wav

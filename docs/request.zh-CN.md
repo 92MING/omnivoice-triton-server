@@ -232,11 +232,11 @@ curl -X POST http://127.0.0.1:9194/v1/audio/clone \
 
 - OmniVoice model card: https://huggingface.co/k2-fsa/OmniVoice
 - OmniVoice 官方 README，非语言声音与读音控制: https://github.com/k2-fsa/OmniVoice#non-verbal--pronunciation-control
-- 当前服务的非语言标记切分实现: `src/modeling/models/omnivoice.py`
+- 当前服务的非语言标记切分实现: `omnivoice-triton-server/modeling/models/omnivoice.py`
 
 ## 支持语言
 
-下表来自 `src/modeling/utils/lang_map.py`。`language` 可以传 ID，也可以传英文语言名。
+下表来自 `omnivoice-triton-server/modeling/utils/lang_map.py`。`language` 可以传 ID，也可以传英文语言名。
 
 语言数量：646。
 

@@ -23,7 +23,8 @@ from logging_config import build_logging_config, configure_logging
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = str(ROOT / "src")
+PACKAGE_DIR = Path(__file__).resolve().parent
+PYTHON_PATHS = [str(PACKAGE_DIR), str(ROOT)]
 
 
 def find_free_port() -> int:
@@ -482,7 +483,7 @@ def start(argv: list[str] | None = None) -> None:
         cfg.workers = gpu_inferers
 
     env = os.environ.copy()
-    py_path = [SRC]
+    py_path = list(PYTHON_PATHS)
     if env.get("PYTHONPATH"):
         py_path.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = ":".join(py_path)
@@ -741,9 +742,10 @@ def build_systemd_wrapper(
         "export PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE:-1}",
         "export PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}",
     ]
-    src_dir = Path(working_dir) / "src"
-    if src_dir.is_dir():
-        lines.append(f"export PYTHONPATH={shlex.quote(str(src_dir))}${{PYTHONPATH:+:$PYTHONPATH}}")
+    package_dir = Path(working_dir) / "omnivoice-triton-server"
+    if package_dir.is_dir():
+        py_path = f"{package_dir}:{working_dir}"
+        lines.append(f"export PYTHONPATH={shlex.quote(py_path)}${{PYTHONPATH:+:$PYTHONPATH}}")
     for key, value in extra_env:
         lines.append(f"export {key}={shlex.quote(value)}")
     lines.append("APP_ARGS=(")

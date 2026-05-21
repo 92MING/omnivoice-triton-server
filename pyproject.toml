@@ -38,25 +38,19 @@ attn = [
 ]
 
 [project.scripts]
-omnivoice-triton-server = "launcher:main"
+omnivoice-triton-server = "omnivoice_triton_server_cli:main"
 
 [tool.ruff]
 line-length = 100
 
 [tool.setuptools]
 py-modules = [
-  "app",
-  "audio",
-  "chunking",
-  "config",
-  "infer_client",
-  "inferer",
-  "launcher",
-  "logging_config",
-  "protocol",
-  "text_normalization",
-  "voices",
+  "omnivoice_triton_server_cli",
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = [
+  "omnivoice-triton-server",
+  "omnivoice-triton-server.*",
+]

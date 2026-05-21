@@ -6,7 +6,7 @@ English: [deployment.en.md](deployment.en.md)
 
 本项目把 `omnivoice-server` 的 API/服务层、`omnivoice-triton` 的
 Triton/hybrid 推理后端，以及上游 `k2-fsa/OmniVoice` 中位于
-`src/modeling` 的模型运行时代码合并成一个可部署服务。
+`omnivoice-triton-server/modeling` 的模型运行时代码合并成一个可部署服务。
 
 合并到同一个代码树是为了让 API worker、socket IPC、batch 调度、CUDA Graph
 形状规划、Triton kernel 和 OmniVoice 模型调用可以统一调优。
@@ -43,7 +43,7 @@ omnivoice-triton-server start \
 ```
 
 `scripts/start_server.sh` 只是源码树里的 POSIX shell 包装器，底层仍然调用
-`python -m omnivoice-triton-server start`。服务默认值在 `src/config.py`，可用
+`python -m omnivoice-triton-server start`。服务默认值在 `omnivoice-triton-server/config.py`，可用
 CLI 参数或 `OMNIVOICE_*` 环境变量覆盖。
 
 如果没有指定 `--fastapi-workers`，launcher 会使用 effective GPU inferer 数量作为
@@ -227,7 +227,7 @@ curl http://127.0.0.1:9194/metrics
 ## 测试命令
 
 ```bash
-PYTHONPATH=src python tests/test_chunking.py
+PYTHONPATH=omnivoice-triton-server python tests/test_chunking.py
 python tests/test_api.py
 python tests/load_1000_rps100.py \
   --total 1000 \
@@ -247,7 +247,7 @@ python tests/load_mixed_1000.py \
 快速语法检查：
 
 ```bash
-python -m py_compile src/*.py
+python -m py_compile omnivoice-triton-server/*.py
 ```
 
 生成产物写入已 ignore 的 `tmp/`、`logs/` 和 `run/`。模型权重和导出的媒体文件也已 ignore。

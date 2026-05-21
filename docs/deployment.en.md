@@ -6,7 +6,7 @@
 
 This project combines an `omnivoice-server` API/service integration with
 selected runtime and acceleration code from `omnivoice-triton`, plus selected
-model/runtime source from upstream `k2-fsa/OmniVoice` under `src/modeling`.
+model/runtime source from upstream `k2-fsa/OmniVoice` under `omnivoice-triton-server/modeling`.
 
 The combined tree lets the server coordinate API workers, socket IPC, batching,
 CUDA Graph shape planning, Triton kernels, and OmniVoice model calls without a
@@ -53,9 +53,9 @@ omnivoice-triton-server start \
 `python -m omnivoice-triton-server start`. It is intentionally small:
 
 - uses `python` unless `OMNIVOICE_PYTHON` is set,
-- prepends this repository's `src/` to `PYTHONPATH`.
+- prepends this repository's `omnivoice-triton-server/` to `PYTHONPATH`.
 
-Service defaults live in `src/config.py` and can be overridden by CLI arguments
+Service defaults live in `omnivoice-triton-server/config.py` and can be overridden by CLI arguments
 or `OMNIVOICE_*` environment variables. They are not defined in the shell
 wrapper.
 
@@ -345,7 +345,7 @@ and long text.
 ## Test Commands
 
 ```bash
-PYTHONPATH=src python tests/test_chunking.py
+PYTHONPATH=omnivoice-triton-server python tests/test_chunking.py
 python tests/test_api.py
 python tests/load_1000_rps100.py \
   --total 1000 \
@@ -362,7 +362,7 @@ python tests/load_mixed_1000.py \
   --out tmp/test-artifacts/mixed_1000_results.json
 ```
 
-Use `python -m py_compile src/*.py` for a quick syntax check.
+Use `python -m py_compile omnivoice-triton-server/*.py` for a quick syntax check.
 
 Generated artifacts are written under ignored `tmp/`, `logs/`, and `run/`.
 Model weights and exported media are ignored as well.
