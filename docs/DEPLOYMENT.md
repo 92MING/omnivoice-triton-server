@@ -40,7 +40,7 @@ omnivoice-triton-server start \
   --max-batch-latency 250 \
   --cuda-stream-count 2 \
   --runner-mode hybrid \
-  --num-step 32
+  --default-num-step 32
 ```
 
 `scripts/start_server.sh` is a POSIX shell convenience wrapper around
@@ -85,7 +85,7 @@ omnivoice-triton-server install-service \
   --max-batch-latency 250 \
   --cuda-stream-count 2 \
   --runner-mode hybrid \
-  --num-step 32
+  --default-num-step 32
 ```
 
 The source tree also includes `scripts/install_systemd_service.sh`, which uses
@@ -104,7 +104,7 @@ scripts/install_systemd_service.sh \
   --max-batch-latency 250 \
   --cuda-stream-count 2 \
   --runner-mode hybrid \
-  --num-step 32
+  --default-num-step 32
 ```
 
 The installer writes:
@@ -128,7 +128,7 @@ without changing the active service.
 - `--cuda-stream-count`
 - `--cuda-graph-min-width`, `--cuda-graph-max-width`
 - `--cuda-graph-auto-width-tokens-per-word`, `--cuda-graph-auto-max-width`
-- `--num-step`, `--guidance-scale`, `--denoise/--no-denoise`, `--t-shift`
+- `--default-num-step`, `--guidance-scale`, `--denoise/--no-denoise`, `--t-shift`
 - `--position-temperature`, `--class-temperature`, `--layer-penalty-factor`
 - `--audio-chunk-duration`, `--audio-chunk-threshold`
 - `--postprocess-output/--no-postprocess-output`
@@ -162,7 +162,8 @@ Content-Type: application/json
   "voice": "auto",
   "response_format": "wav",
   "speed": 1.0,
-  "chunk_mode": "concurrent"
+  "chunk_mode": "concurrent",
+  "num_step": 32
 }
 ```
 
@@ -184,6 +185,7 @@ Supported fields:
 - `language`: optional language hint
 - `stream`: `true` for SSE
 - `chunk_mode`: `concurrent`, `sequential`, or `none`
+- `num_step`: optional per-request generation step count, `1` to `128`
 - `request_timeout_s`: per-request timeout override
 
 Unknown JSON fields are preserved under `extra_fields` for future plumbing and
@@ -195,7 +197,6 @@ Server-controlled fields are rejected from client requests:
 - `audio_chunk_threshold`
 - `batch_mode`
 - `position_temperature`
-- `num_step`
 - `postprocess_output`
 
 ### Voice Design
@@ -298,34 +299,33 @@ hardware class and launch configuration.
 - Hardware used by this service: 2 x NVIDIA GeForce RTX 3080, 20 GiB each.
 - Launch: `--gpu-inferer 2 --fastapi-workers 2 --runner-mode hybrid --dtype fp16
   --max-batch-size 16 --max-batch-latency 250 --cuda-stream-count 2
-  --num-step 32`.
-- Load: 1000 requests at a 100 req/s target arrival rate.
+  --default-num-step 32`.
+- Load: short text requests at a 100 req/s target arrival rate.
 
 ### Throughput
 
 | Workload | Wall time | Completed req/s | Generated audio | Audio realtime | RTF |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Short speech/design | 61.553 s | 16.246 | 786.100 s | 12.771x | 0.0783 |
-| Mixed short/medium/long speech/design/clone | 247.159 s | 4.046 | 2,648.752 s | 10.717x | 0.0933 |
+| Short speech, `num_step=16`, 1000 requests | 62.257 s | 16.062 | 3,525.640 s | 56.630x | 0.0177 |
+| Short speech, `num_step=32`, 1000 requests | 120.840 s | 8.275 | 3,526.300 s | 29.182x | 0.0343 |
+| Short speech, mixed `num_step=16/32`, 2000 requests | 205.533 s | 9.731 | 8,346.860 s | 40.610x | 0.0246 |
 
 ### Scheduler Efficiency
 
-| Workload | Client requests | Backend tasks | Tasks/request | Backend batches | Tasks/backend batch | Backend task/s |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Short speech/design | 1,000 | 1,000 | 1.000 | 68 | 14.706 | 16.246 |
-| Mixed short/medium/long speech/design/clone | 1,000 | 1,733 | 1.733 | 67 | 25.866 | 7.011 |
+| Workload | Client requests | Backend tasks | Backend batches | Tasks/backend batch | Notes |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Mixed `num_step=16/32` | 2,000 | 2,000 | 129 | 15.504 | Scheduler prefers same-step batches and only mixes step counts on timeout. |
 
 ### CUDA Graph Behavior
 
-- Graph entries per inferer: 14.
+- Graph entries per inferer: 15.
 - Captured shapes per inferer:
   `(2,8,128)`, `(2,8,160)`, `(2,8,256)`, `(2,8,512)`,
-  `(8,8,64)`, `(8,8,128)`, `(8,8,160)`, `(8,8,256)`,
+  `(2,8,640)`, `(8,8,64)`, `(8,8,128)`, `(8,8,160)`, `(8,8,256)`,
   `(16,8,128)`, `(16,8,160)`, `(16,8,256)`,
   `(32,8,64)`, `(32,8,128)`, `(32,8,160)`.
-- Mixed 1000-request run graph delta: 11,520 hits and 32 misses after
-  subtracting pre-run counters.
-- Max backend batch seen by the two inferers: 49 and 46 tasks.
+- Optional `(4,8,512)` graph capture was skipped by the memory headroom guard on
+  this launch, so startup kept the model online instead of forcing an OOM.
 
 Audio quality smoke validation covered auto, design, and clone modes with short
 and long text.

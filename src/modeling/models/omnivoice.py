@@ -126,6 +126,7 @@ class GenerationTask:
     ref_audio_tokens: List[Optional[torch.Tensor]]
     ref_rms: List[Optional[float]]
     speed: Optional[List[float]] = None
+    num_steps: Optional[List[int]] = None
 
     def get_indices(self, config: OmniVoiceGenerationConfig, frame_rate: int):
         threshold = int(config.audio_chunk_threshold * frame_rate)
@@ -146,6 +147,7 @@ class GenerationTask:
             ref_audio_tokens=[self.ref_audio_tokens[i] for i in indices],
             ref_rms=[self.ref_rms[i] for i in indices],
             speed=[self.speed[i] for i in indices] if self.speed else None,
+            num_steps=[self.num_steps[i] for i in indices] if self.num_steps else None,
         )
 
 
@@ -729,6 +731,7 @@ class OmniVoice(PreTrainedModel):
             chunk_audios = [
                 self.audio_tokenizer.decode(t.to(tokenizer_device).unsqueeze(0))
                 .audio_values[0]
+                .detach()
                 .cpu()
                 .numpy()
                 for t in tokens
@@ -742,6 +745,7 @@ class OmniVoice(PreTrainedModel):
             audio_waveform = (
                 self.audio_tokenizer.decode(tokens.to(tokenizer_device).unsqueeze(0))
                 .audio_values[0]
+                .detach()
                 .cpu()
                 .numpy()
             )
@@ -1250,21 +1254,28 @@ class OmniVoice(PreTrainedModel):
             device=self.device,
         )
 
-        timesteps = _get_time_steps(
-            t_start=0.0,
-            t_end=1.0,
-            num_step=gen_config.num_step,
-            t_shift=gen_config.t_shift,
-        ).tolist()
+        item_num_steps = (
+            [max(1, int(step)) for step in task.num_steps]
+            if task.num_steps is not None
+            else [max(1, int(gen_config.num_step))] * B
+        )
+        max_num_step = max(item_num_steps)
         schedules = []
-        for t_len in task.target_lens:
+        for t_len, item_num_step in zip(task.target_lens, item_num_steps):
+            timesteps = _get_time_steps(
+                t_start=0.0,
+                t_end=1.0,
+                num_step=item_num_step,
+                t_shift=gen_config.t_shift,
+                device=self.device,
+            ).tolist()
             total_mask = t_len * self.config.num_audio_codebook
             rem = total_mask
             sched = []
-            for step in range(gen_config.num_step):
+            for step in range(item_num_step):
                 num = (
                     rem
-                    if step == gen_config.num_step - 1
+                    if step == item_num_step - 1
                     else min(
                         math.ceil(total_mask * (timesteps[step + 1] - timesteps[step])),
                         rem,
@@ -1278,15 +1289,42 @@ class OmniVoice(PreTrainedModel):
             self.config.num_audio_codebook, device=self.device
         ).view(1, -1, 1)
 
-        for step in range(gen_config.num_step):
+        for global_step in range(max_num_step):
+            active: list[tuple[int, int]] = []
+            for i, item_num_step in enumerate(item_num_steps):
+                prev_count = (global_step * item_num_step) // max_num_step
+                next_count = ((global_step + 1) * item_num_step) // max_num_step
+                if next_count > prev_count:
+                    active.append((i, next_count - 1))
+
+            if not active:
+                continue
+
+            active_indices = [i for i, _ in active]
+            active_width = max(max(c_lens[i], task.target_lens[i]) for i in active_indices)
+            row_indices = torch.tensor(
+                active_indices + [B + i for i in active_indices],
+                dtype=torch.long,
+                device=self.device,
+            )
+            active_input_ids = batch_input_ids.index_select(0, row_indices)[
+                :, :, :active_width
+            ]
+            active_audio_mask = batch_audio_mask.index_select(0, row_indices)[
+                :, :active_width
+            ]
+            active_attention_mask = batch_attention_mask.index_select(0, row_indices)[
+                :, :, :active_width, :active_width
+            ]
             batch_logits = self(
-                input_ids=batch_input_ids,
-                audio_mask=batch_audio_mask,
-                attention_mask=batch_attention_mask,
+                input_ids=active_input_ids,
+                audio_mask=active_audio_mask,
+                attention_mask=active_attention_mask,
             ).logits.to(torch.float32)
 
-            for i in range(B):
-                k = schedules[i][step]
+            active_count = len(active)
+            for active_pos, (i, local_step) in enumerate(active):
+                k = schedules[i][local_step]
                 if k <= 0:
                     continue
 
@@ -1294,8 +1332,18 @@ class OmniVoice(PreTrainedModel):
 
                 # Extract real target Logits
                 # [1, C, T, V]
-                c_logits = batch_logits[i : i + 1, :, c_len - t_len : c_len, :]
-                u_logits = batch_logits[B + i : B + i + 1, :, :t_len, :]
+                c_logits = batch_logits[
+                    active_pos : active_pos + 1,
+                    :,
+                    c_len - t_len : c_len,
+                    :,
+                ]
+                u_logits = batch_logits[
+                    active_count + active_pos : active_count + active_pos + 1,
+                    :,
+                    :t_len,
+                    :,
+                ]
 
                 pred_tokens, scores = self._predict_tokens_with_scoring(
                     c_logits, u_logits, gen_config

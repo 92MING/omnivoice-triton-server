@@ -289,7 +289,7 @@ class TritonBackend:
 
         return OmniVoiceGenerationConfig(
             denoise=self.cfg.denoise,
-            num_step=self.cfg.num_step,
+            num_step=self.cfg.default_num_step,
             guidance_scale=self.cfg.guidance_scale,
             t_shift=self.cfg.t_shift,
             position_temperature=self.cfg.position_temperature,
@@ -362,6 +362,54 @@ class TritonBackend:
         )
         if split_results is not None:
             return split_results
+
+        gen_config = kwargs["generation_config"]
+        num_steps = [self._task_num_step(task) for task in tasks]
+        if len(set(num_steps)) == 1:
+            gen_config.num_step = num_steps[0]
+        elif not any(ref_audio is not None for ref_audio in ref_audios):
+            stream = self.streams[stream_idx % len(self.streams)]
+            start = time.perf_counter()
+            if stream is None:
+                with torch.inference_mode():
+                    tokens = self._generate_tokens(
+                        texts=texts,
+                        language=languages,
+                        instruct=instructs,
+                        speed=speeds,
+                        durations=durations,
+                        voice_clone_prompts=voice_clone_prompts_for_width,
+                        num_steps=num_steps,
+                    )
+                if str(self.cfg.device).startswith("cuda"):
+                    torch.cuda.synchronize()
+            else:
+                with torch.cuda.stream(stream):
+                    with torch.inference_mode():
+                        tokens = self._generate_tokens(
+                            texts=texts,
+                            language=languages,
+                            instruct=instructs,
+                            speed=speeds,
+                            durations=durations,
+                            voice_clone_prompts=voice_clone_prompts_for_width,
+                            num_steps=num_steps,
+                        )
+                stream.synchronize()
+            elapsed = time.perf_counter() - start
+            out: list[dict[str, Any]] = []
+            for task, token, prompt in zip(
+                tasks,
+                tokens,
+                voice_clone_prompts_for_width or [None] * len(tasks),
+            ):
+                audio = self.model._decode_and_post_process(  # noqa: SLF001
+                    token.detach(),
+                    prompt.ref_rms if prompt is not None else None,
+                    self.generation_config(),
+                )
+                out.append(self._audio_result(task, task.seq, audio, elapsed, task.duration))
+            return out
 
         stream = self.streams[stream_idx % len(self.streams)]
         start = time.perf_counter()
@@ -602,6 +650,7 @@ class TritonBackend:
                     speed=[job.task.speed for job in batch_jobs],
                     durations=[self._generation_duration(job) for job in batch_jobs],
                     voice_clone_prompts=prompt_list,
+                    num_steps=[self._task_num_step(job.task) for job in batch_jobs],
                 )
                 for job, token in zip(batch_jobs, tokens):
                     task_index = task_indices[id(job.task)]
@@ -639,6 +688,9 @@ class TritonBackend:
         if frame_rate <= 0.0:
             return None
         return max(1, int(target_tokens)) / frame_rate
+
+    def _task_num_step(self, task: InferTask) -> int:
+        return max(1, int(task.num_step or self.cfg.default_num_step))
 
     def _estimate_chunk_job_width(self, job: ChunkJob, gen_config: Any) -> int:
         cache_key = self._chunk_job_width_cache_key(job, gen_config)
@@ -892,8 +944,11 @@ class TritonBackend:
         speed: float | list[float],
         durations: list[float | None],
         voice_clone_prompts: list[Any] | None,
+        num_steps: list[int] | None = None,
     ) -> list[torch.Tensor]:
         gen_config = self.generation_config()
+        if num_steps:
+            gen_config.num_step = max(max(1, int(step)) for step in num_steps)
         has_duration = any(duration is not None for duration in durations)
         full_task = self.model._preprocess_all(  # noqa: SLF001
             text=texts,
@@ -904,6 +959,8 @@ class TritonBackend:
             speed=None if has_duration else speed,
             duration=durations if has_duration else None,
         )
+        if num_steps:
+            full_task.num_steps = [max(1, int(step)) for step in num_steps]
         return self.model._generate_iterative(full_task, gen_config)  # noqa: SLF001
 
     def _audio_result(
@@ -1073,6 +1130,7 @@ class Inferer:
             duration=req.duration,
             language=req.language,
             chunk_mode=req.chunk_mode,
+            num_step=req.num_step,
             ref_text=req.ref_text,
             ref_audio=req.ref_audio,
             ref_audio_b64=req.ref_audio_b64,
@@ -1090,7 +1148,13 @@ class Inferer:
         )
 
     def scheduler_key(self, queued: QueuedTask) -> tuple[Any, ...]:
-        return self.group_key(queued)
+        return (
+            *self.group_key(queued),
+            self._task_num_step(queued.task),
+        )
+
+    def _task_num_step(self, task: InferTask) -> int:
+        return max(1, int(task.num_step or self.cfg.default_num_step))
 
     def batch_class(self, queued: QueuedTask) -> str:
         if queued.chunk_count <= 1:
@@ -1139,7 +1203,10 @@ class Inferer:
         oldest_item = min(self.pending, key=lambda item: item.enqueued_at)
         oldest_age_ms = (now - oldest_item.enqueued_at) * 1000.0
         if oldest_age_ms >= self.cfg.batch_wait_ms:
-            return self.pop_batch_for_key_locked(self.scheduler_key(oldest_item))
+            return self.pop_batch_for_group_locked(
+                self.group_key(oldest_item),
+                self.scheduler_key(oldest_item),
+            )
 
         buckets = self.pending_buckets_locked()
         full_buckets = [
@@ -1185,6 +1252,37 @@ class Inferer:
         self.pending = rest
         return batch
 
+    def pop_batch_for_group_locked(
+        self,
+        group_key: tuple[Any, ...],
+        preferred_scheduler_key: tuple[Any, ...],
+    ) -> list[QueuedTask]:
+        batch: list[QueuedTask] = []
+        rest: list[QueuedTask] = []
+        limit = self.cfg.batch_size
+
+        for item in self.pending:
+            if (
+                len(batch) < limit
+                and self.group_key(item) == group_key
+                and self.scheduler_key(item) == preferred_scheduler_key
+            ):
+                batch.append(item)
+            else:
+                rest.append(item)
+
+        if len(batch) < limit:
+            new_rest: list[QueuedTask] = []
+            for item in rest:
+                if len(batch) < limit and self.group_key(item) == group_key:
+                    batch.append(item)
+                else:
+                    new_rest.append(item)
+            rest = new_rest
+
+        self.pending = rest
+        return batch
+
     async def dispatch_worker(self, stream_idx: int) -> None:
         while True:
             async with self.condition:
@@ -1201,12 +1299,17 @@ class Inferer:
         try:
             tasks = [item.task for item in batch]
             chunk_count = sum(item.chunk_count for item in batch)
+            num_step_counts: dict[int, int] = {}
+            for task in tasks:
+                step = self._task_num_step(task)
+                num_step_counts[step] = num_step_counts.get(step, 0) + 1
             logger.info(
-                "Dispatching batch size=%d chunks=%d mode=%s key=%s",
+                "Dispatching batch size=%d chunks=%d mode=%s key=%s num_steps=%s",
                 len(tasks),
                 chunk_count,
                 tasks[0].mode if tasks else None,
                 self.group_key(batch[0]) if batch else None,
+                num_step_counts,
             )
             results_by_item = await asyncio.to_thread(self.backend.generate_batch, tasks, stream_idx)
             flat_results = [result for item_results in results_by_item for result in item_results]
@@ -1226,16 +1329,18 @@ class Inferer:
                 "chunks": chunk_count,
                 "mode": tasks[0].mode if tasks else None,
                 "key": list(self.group_key(batch[0])) if batch else None,
+                "num_steps": {str(k): v for k, v in sorted(num_step_counts.items())},
                 "queue_wait_ms": round(queue_wait_ms, 1),
                 "elapsed_s": round(dispatch_elapsed_s, 3),
                 "pcm_bytes": pcm_bytes,
                 "stream_idx": stream_idx,
             }
             logger.info(
-                "Completed batch size=%d chunks=%d mode=%s elapsed=%.3fs queue_wait=%.1fms pcm_bytes=%d",
+                "Completed batch size=%d chunks=%d mode=%s num_steps=%s elapsed=%.3fs queue_wait=%.1fms pcm_bytes=%d",
                 len(batch),
                 chunk_count,
                 tasks[0].mode if tasks else None,
+                num_step_counts,
                 dispatch_elapsed_s,
                 queue_wait_ms,
                 pcm_bytes,
@@ -1315,6 +1420,7 @@ class Inferer:
             "max_batch_size_seen": self.max_batch_size_seen,
             "last_batch": self.last_batch,
             "batch_size": self.cfg.batch_size,
+            "default_num_step": self.cfg.default_num_step,
             "batch_wait_ms": self.cfg.batch_wait_ms,
             "dispatch_workers": self.dispatch_worker_count,
             "log_file": self.cfg.log_file,
@@ -1406,7 +1512,7 @@ async def amain() -> None:
     parser.add_argument("--cuda-graph-min-width", type=int, default=None)
     parser.add_argument("--cuda-graph-max-width", type=int, default=None)
     parser.add_argument("--max-clone-audio-prompt-cache", type=int, default=None)
-    parser.add_argument("--num-step", type=int, default=None)
+    parser.add_argument("--default-num-step", type=int, default=None)
     args = parser.parse_args()
 
     cfg = Settings()
@@ -1434,8 +1540,8 @@ async def amain() -> None:
         cfg.cuda_graph_max_width = args.cuda_graph_max_width
     if args.max_clone_audio_prompt_cache is not None:
         cfg.max_clone_audio_prompt_cache = args.max_clone_audio_prompt_cache
-    if args.num_step is not None:
-        cfg.num_step = args.num_step
+    if args.default_num_step is not None:
+        cfg.default_num_step = args.default_num_step
     if not cfg.log_file:
         run_id = cfg.log_run_id or time.strftime("%Y%m%d-%H%M%S")
         cfg.log_file = str(Path(cfg.log_dir).expanduser() / run_id / "inferer.log")

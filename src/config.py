@@ -50,8 +50,8 @@ class Settings(BaseSettings):
     max_sse_audio_b64_chars: int = 48_000
     clone_prompt_shared_cache_dir: str = ""
 
-    # Internal generation defaults. These are intentionally not request-tunable.
-    num_step: int = 32
+    # Internal generation defaults. Individual requests may override num_step.
+    default_num_step: int = Field(default=32, ge=1, le=128)
     guidance_scale: float = 2.0
     denoise: bool = True
     t_shift: float = 0.1

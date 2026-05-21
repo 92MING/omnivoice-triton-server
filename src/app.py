@@ -136,6 +136,7 @@ def create_app() -> FastAPI:
             duration=body.duration,
             language=body.language,
             chunk_mode=body.chunk_mode,
+            num_step=body.num_step,
             stream=body.stream,
             extra_fields=body.extra_fields,
         )
@@ -177,6 +178,7 @@ def create_app() -> FastAPI:
         speed: float | None = Form(None),
         duration: float | None = Form(None),
         chunk_mode: Literal["concurrent", "sequential", "none"] = Form("concurrent"),
+        num_step: int | None = Form(None),
         response_format: str = Form("wav"),
         request_timeout_s: float | None = Form(None),
     ):
@@ -192,6 +194,7 @@ def create_app() -> FastAPI:
             duration=duration,
             language=language or language_id,
             chunk_mode=chunk_mode,
+            num_step=num_step,
         )
         return await _audio_response(request, infer_req, response_format, request_timeout_s or cfg.request_timeout_s)
 
@@ -207,6 +210,7 @@ def create_app() -> FastAPI:
         speed: float | None = Form(None),
         duration: float | None = Form(None),
         chunk_mode: Literal["concurrent", "sequential", "none"] = Form("concurrent"),
+        num_step: int | None = Form(None),
         response_format: str = Form("wav"),
         request_timeout_s: float | None = Form(None),
     ):
@@ -235,6 +239,7 @@ def create_app() -> FastAPI:
             duration=duration,
             language=language or language_id,
             chunk_mode=chunk_mode,
+            num_step=num_step,
         )
         return await _audio_response(
             request,

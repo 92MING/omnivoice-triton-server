@@ -32,7 +32,7 @@ omnivoice-triton-server start \
   --max-batch-latency 250 \
   --cuda-stream-count 2 \
   --runner-mode hybrid \
-  --num-step 32
+  --default-num-step 32
 ```
 
 安装后会多出 `omnivoice-triton-server` 命令。模块入口也可用：
@@ -112,7 +112,7 @@ scripts/install_systemd_service.sh \
   --max-batch-latency 250 \
   --cuda-stream-count 2 \
   --runner-mode hybrid \
-  --num-step 32
+  --default-num-step 32
 ```
 
 `--` 后面的参数会原样传给 `omnivoice-triton-server start`。脚本会写入
@@ -129,7 +129,7 @@ scripts/install_systemd_service.sh \
 - `--cuda-stream-count`
 - `--cuda-graph-min-width` / `--cuda-graph-max-width`
 - `--cuda-graph-auto-width-tokens-per-word` / `--cuda-graph-auto-max-width`
-- `--num-step`
+- `--default-num-step`：服务默认采样步数，单个请求可以用 `num_step` 覆盖
 - `--max-clone-audio-prompt-cache`
 - `--text-chunk-*`
 
@@ -144,39 +144,38 @@ scripts/install_systemd_service.sh \
 - 服务使用硬件：2 x NVIDIA GeForce RTX 3080, 20 GiB
 - 启动参数：`--gpu-inferer 2 --fastapi-workers 2 --runner-mode hybrid
   --dtype fp16 --max-batch-size 16 --max-batch-latency 250
-  --cuda-stream-count 2 --num-step 32`
-- 压测：1000 请求，目标到达速率 100 req/s
+  --cuda-stream-count 2 --default-num-step 32`
+- 压测：短文本请求，目标到达速率 100 req/s
 - 音频质量 smoke：auto、design、clone 的长短文本都经过 ASR 对比
 
 ### 吞吐
 
 | 负载 | 总耗时 | 完成 req/s | 生成音频时长 | 音频实时倍数 | RTF |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 短文本 speech/design | 61.553 s | 16.246 | 786.100 s | 12.771x | 0.0783 |
-| 混合短/中/长 speech/design/clone | 247.159 s | 4.046 | 2,648.752 s | 10.717x | 0.0933 |
+| 短文本，`num_step=16`，1000 请求 | 62.257 s | 16.062 | 3,525.640 s | 56.630x | 0.0177 |
+| 短文本，`num_step=32`，1000 请求 | 120.840 s | 8.275 | 3,526.300 s | 29.182x | 0.0343 |
+| 短文本，混合 `num_step=16/32`，2000 请求 | 205.533 s | 9.731 | 8,346.860 s | 40.610x | 0.0246 |
 
 `音频实时倍数 = 生成音频时长 / 总耗时`，`RTF = 总耗时 / 生成音频时长`。
 
 ### 调度效率
 
-| 负载 | 客户端请求 | 后端任务 | 任务/请求 | 后端 batch | 任务/backend batch | 后端任务/s |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 短文本 speech/design | 1,000 | 1,000 | 1.000 | 68 | 14.706 | 16.246 |
-| 混合短/中/长 speech/design/clone | 1,000 | 1,733 | 1.733 | 67 | 25.866 | 7.011 |
+| 负载 | 客户端请求 | 后端任务 | 后端 batch | 任务/backend batch | 说明 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 混合 `num_step=16/32` | 2,000 | 2,000 | 129 | 15.504 | 调度优先合并同 step，等待超时后才混合不同 step。 |
 
-混合测试里长文本会拆 chunk，所以后端任务数大于客户端请求数。这里真正用来判断
-batching 效率的是 `任务/backend batch`。
+这里真正用来判断 batching 效率的是 `任务/backend batch`。
 
 ### CUDA Graph
 
-- 每个 inferer 预热 14 个 graph。
+- 每个 inferer 预热 15 个 graph。
 - 每个 inferer 的形状：
   `(2,8,128)`, `(2,8,160)`, `(2,8,256)`, `(2,8,512)`,
-  `(8,8,64)`, `(8,8,128)`, `(8,8,160)`, `(8,8,256)`,
+  `(2,8,640)`, `(8,8,64)`, `(8,8,128)`, `(8,8,160)`, `(8,8,256)`,
   `(16,8,128)`, `(16,8,160)`, `(16,8,256)`,
   `(32,8,64)`, `(32,8,128)`, `(32,8,160)`。
-- mixed 1000 请求期间，扣除压测前计数后 graph hits 为 11,520，misses 为 32。
-- 两个 inferer 观测到的最大后端 batch 分别是 49 和 46 个任务。
+- 本次启动里可选 `(4,8,512)` 被 memory headroom 保护跳过，避免低余量下强行
+  capture 导致 OOM。
 
 ## 测试
 

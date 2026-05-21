@@ -37,10 +37,10 @@ Options:
 Example:
   scripts/install_systemd_service.sh \
     --cuda-visible-devices 0,1 \
-    --python /opt/omnivoice/.venv/bin/python \
+    --python /path/to/python \
     -- \
     --port 9194 \
-    --model-id /models/OmniVoice \
+    --model-id /path/to/OmniVoice \
     --gpu-inferer 2 \
     --max-batch-size 16
 EOF

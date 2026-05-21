@@ -145,10 +145,10 @@ def main() -> None:
         "/v1/audio/speech",
         {"model": "tts-1", "input": "param test", "voice": "auto", "num_step": 8},
     )
-    forbidden_body = read_body(response).decode("utf-8")
-    assert_true(response.status == 422, f"forbidden num_step returned {response.status}")
-    assert_true("num_step" in forbidden_body, "forbidden response missing num_step")
-    results["forbidden_status"] = response.status
+    body = read_body(response)
+    assert_true(response.status == 200, f"request num_step returned {response.status}")
+    assert_true(len(body) > 44, "request num_step returned empty audio")
+    results["request_num_step_status"] = response.status
 
     response = post_json(
         "/v1/audio/speech",

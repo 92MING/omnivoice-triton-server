@@ -216,7 +216,7 @@ def add_start_arguments(parser: argparse.ArgumentParser, cfg: Settings) -> None:
     parser.add_argument("--sample-rate", type=int, default=cfg.sample_rate)
     parser.add_argument("--max-sse-audio-b64-chars", type=int, default=cfg.max_sse_audio_b64_chars)
     parser.add_argument("--max-clone-audio-prompt-cache", type=int, default=cfg.max_clone_audio_prompt_cache)
-    parser.add_argument("--num-step", type=int, default=cfg.num_step)
+    parser.add_argument("--default-num-step", type=int, default=cfg.default_num_step)
     parser.add_argument("--guidance-scale", type=float, default=cfg.guidance_scale)
     parser.add_argument("--denoise", action=argparse.BooleanOptionalAction, default=cfg.denoise)
     parser.add_argument("--t-shift", type=float, default=cfg.t_shift)
@@ -364,7 +364,7 @@ def start(argv: list[str] | None = None) -> None:
         args.max_clone_audio_prompt_cache,
         "OMNIVOICE_MAX_CLONE_AUDIO_PROMPT_CACHE",
     )
-    set_arg_env(cfg, "num_step", args.num_step, "OMNIVOICE_NUM_STEP")
+    set_arg_env(cfg, "default_num_step", args.default_num_step, "OMNIVOICE_DEFAULT_NUM_STEP")
     set_arg_env(cfg, "guidance_scale", args.guidance_scale, "OMNIVOICE_GUIDANCE_SCALE")
     set_arg_env(cfg, "denoise", args.denoise, "OMNIVOICE_DENOISE")
     set_arg_env(cfg, "t_shift", args.t_shift, "OMNIVOICE_T_SHIFT")

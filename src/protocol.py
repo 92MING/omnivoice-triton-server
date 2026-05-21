@@ -9,7 +9,6 @@ FORBIDDEN_REQUEST_PARAMS = {
     "audio_chunk_threshold",
     "batch_mode",
     "position_temperature",
-    "num_step",
     "postprocess_output",
 }
 
@@ -25,6 +24,7 @@ KNOWN_SPEECH_FIELDS = {
     "duration",
     "language",
     "chunk_mode",
+    "num_step",
     "extra_fields",
     "request_timeout_s",
 }
@@ -44,6 +44,7 @@ class SpeechRequest(BaseModel):
     duration: float | None = Field(default=None, ge=0.05, le=120.0)
     language: str | None = None
     chunk_mode: Literal["concurrent", "sequential", "none"] = "concurrent"
+    num_step: int | None = Field(default=None, ge=1, le=128)
     request_timeout_s: float | None = Field(default=None, ge=1.0, le=1200.0)
     extra_fields: dict[str, Any] = Field(default_factory=dict)
 
@@ -81,6 +82,7 @@ class InferRequest(BaseModel):
     duration: float | None = None
     language: str | None = None
     chunk_mode: Literal["concurrent", "sequential", "none"] = "concurrent"
+    num_step: int | None = Field(default=None, ge=1, le=128)
     ref_text: str | None = None
     ref_audio: str | None = None
     ref_audio_b64: str | None = None
@@ -101,6 +103,7 @@ class InferTask(BaseModel):
     duration: float | None = None
     language: str | None = None
     chunk_mode: Literal["concurrent", "sequential", "none"] = "concurrent"
+    num_step: int | None = Field(default=None, ge=1, le=128)
     ref_text: str | None = None
     ref_audio: str | None = None
     ref_audio_b64: str | None = None

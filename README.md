@@ -34,7 +34,7 @@ omnivoice-triton-server start \
   --max-batch-latency 250 \
   --cuda-stream-count 2 \
   --runner-mode hybrid \
-  --num-step 32
+  --default-num-step 32
 ```
 
 Installing the package adds the `omnivoice-triton-server` console command. The
@@ -48,7 +48,7 @@ Stop a foreground/background process by port or pid file:
 
 ```bash
 omnivoice-triton-server stop --port 9194
-omnivoice-triton-server stop --pid-file logs/<run-id>/server.pid --no-port
+omnivoice-triton-server stop --pid-file logs/20260520-212301/server.pid --no-port
 ```
 
 Install or update a systemd service:
@@ -163,7 +163,8 @@ CPU inferer code was removed. Scale this server with GPU inferer processes.
 - `--cuda-graph-min-width`, `--cuda-graph-max-width`: graph width controls.
 - `--cuda-graph-auto-width-tokens-per-word`,
   `--cuda-graph-auto-max-width`: context-limit estimation for `chunk_mode=none`.
-- `--num-step`: global generation step count. Default: `32`.
+- `--default-num-step`: server default generation step count. Default: `32`.
+  Requests may override it with `num_step`.
 - `--max-clone-audio-prompt-cache`: clone prompt LRU size. Default: `32`.
 - `--max-continuity-audio-tokens`,
   `--max-continuity-text-words`: chunk continuity prompt limits.
@@ -187,7 +188,8 @@ curl -X POST http://127.0.0.1:9194/v1/audio/speech \
     "voice": "auto",
     "response_format": "wav",
     "speed": 1.0,
-    "chunk_mode": "concurrent"
+    "chunk_mode": "concurrent",
+    "num_step": 32
   }' \
   --output speech.wav
 ```
@@ -227,8 +229,8 @@ Test configuration:
 - Hardware used by this service: 2 x NVIDIA GeForce RTX 3080, 20 GiB each.
 - Launch: `--gpu-inferer 2 --fastapi-workers 2 --runner-mode hybrid --dtype fp16
   --max-batch-size 16 --max-batch-latency 250 --cuda-stream-count 2
-  --num-step 32`.
-- Load generator: 1000 requests scheduled at 100 req/s.
+  --default-num-step 32`.
+- Load generator: short text requests scheduled at 100 req/s.
 - Audio quality smoke: auto, design, and clone outputs were checked by ASR on
   both short and long texts.
 
@@ -236,36 +238,34 @@ Test configuration:
 
 | Workload | Wall time | Completed req/s | Generated audio | Audio realtime | RTF |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Short speech/design | 61.553 s | 16.246 | 786.100 s | 12.771x | 0.0783 |
-| Mixed short/medium/long speech/design/clone | 247.159 s | 4.046 | 2,648.752 s | 10.717x | 0.0933 |
+| Short speech, `num_step=16`, 1000 requests | 62.257 s | 16.062 | 3,525.640 s | 56.630x | 0.0177 |
+| Short speech, `num_step=32`, 1000 requests | 120.840 s | 8.275 | 3,526.300 s | 29.182x | 0.0343 |
+| Short speech, mixed `num_step=16/32`, 2000 requests | 205.533 s | 9.731 | 8,346.860 s | 40.610x | 0.0246 |
 
 `Audio realtime` is generated audio duration divided by wall time. `RTF` is
 wall time divided by generated audio duration.
 
 ### Scheduler Efficiency
 
-| Workload | Client requests | Backend tasks | Tasks/request | Backend batches | Tasks/backend batch | Backend task/s |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Short speech/design | 1,000 | 1,000 | 1.000 | 68 | 14.706 | 16.246 |
-| Mixed short/medium/long speech/design/clone | 1,000 | 1,733 | 1.733 | 67 | 25.866 | 7.011 |
+| Workload | Client requests | Backend tasks | Backend batches | Tasks/backend batch | Notes |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Mixed `num_step=16/32` | 2,000 | 2,000 | 129 | 15.504 | Scheduler prefers same-step batches and only mixes step counts on timeout. |
 
-The mixed run has more backend tasks than client requests because long inputs are
-split into chunks. The useful batching signal is `Tasks/backend batch`: higher
-means the scheduler kept the GPU inferers fed with larger model batches.
+The useful batching signal is `Tasks/backend batch`: higher means the scheduler
+kept the GPU inferers fed with larger model batches.
 
 ### CUDA Graph Behavior
 
-Final mixed run graph state, aggregated across two GPU inferers:
+Current two-GPU graph plan:
 
-- Graph entries per inferer: 14.
+- Graph entries per inferer: 15.
 - Captured shapes per inferer:
   `(2,8,128)`, `(2,8,160)`, `(2,8,256)`, `(2,8,512)`,
-  `(8,8,64)`, `(8,8,128)`, `(8,8,160)`, `(8,8,256)`,
+  `(2,8,640)`, `(8,8,64)`, `(8,8,128)`, `(8,8,160)`, `(8,8,256)`,
   `(16,8,128)`, `(16,8,160)`, `(16,8,256)`,
   `(32,8,64)`, `(32,8,128)`, `(32,8,160)`.
-- During the mixed 1000-request run: 11,520 graph hits and 32 graph misses
-  after subtracting the pre-run counters.
-- Max backend batch seen by each inferer: 49 and 46 tasks.
+- Optional `(4,8,512)` graph capture was skipped by the memory headroom guard on
+  this launch, so startup kept the model online instead of forcing an OOM.
 
 The graph miss count is the number to watch when changing chunking, graph width
 buckets, or `--max-batch-size`; sustained misses usually mean requests are
