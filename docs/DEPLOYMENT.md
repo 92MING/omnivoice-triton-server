@@ -57,6 +57,38 @@ If `--fastapi-workers` is omitted, the launcher uses the effective GPU inferer
 count as the worker count. If `--gpu-inferer` exceeds visible GPUs, it is clamped
 to the number of visible GPUs. Startup fails if no GPU inferer can be started.
 
+## Systemd Service
+
+Use `scripts/install_systemd_service.sh` to generate and register a Linux
+systemd unit. The script requires the CUDA device list and accepts normal
+launcher arguments after `--`.
+
+```bash
+scripts/install_systemd_service.sh \
+  --cuda-visible-devices 0,1 \
+  --python /path/to/python \
+  --service-name omnivoice-server \
+  -- \
+  --port 9194 \
+  --model-id /path/to/OmniVoice \
+  --gpu-inferer 2 \
+  --max-batch-size 16 \
+  --max-batch-latency 250 \
+  --cuda-stream-count 2 \
+  --runner-mode hybrid \
+  --num-step 32
+```
+
+The installer writes:
+
+- `/etc/omnivoice/<service>.sh`: wrapper with `CUDA_VISIBLE_DEVICES`,
+  `PYTHONPATH`, extra `--env KEY=VALUE` values, and launcher arguments.
+- `/etc/systemd/system/<service>.service`: systemd unit using the wrapper.
+
+By default it runs `systemctl daemon-reload`, enables the service at boot, and
+restarts it immediately. Use `--no-enable` or `--no-start` when staging a unit
+without changing the active service.
+
 ## Important Arguments
 
 - `--host`, `--port`

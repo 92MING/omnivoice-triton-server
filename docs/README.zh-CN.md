@@ -53,6 +53,31 @@ python -m omnivoice_triton_server \
 `scripts/start_server.sh` 只是一个 shell 包装器，真正入口是
 `python -m omnivoice_triton_server`。
 
+## systemd 服务
+
+可以用 `scripts/install_systemd_service.sh` 生成并注册 systemd unit：
+
+```bash
+scripts/install_systemd_service.sh \
+  --cuda-visible-devices 0,1 \
+  --python /path/to/python \
+  --service-name omnivoice-server \
+  -- \
+  --port 9194 \
+  --model-id /path/to/OmniVoice \
+  --gpu-inferer 2 \
+  --max-batch-size 16 \
+  --max-batch-latency 250 \
+  --cuda-stream-count 2 \
+  --runner-mode hybrid \
+  --num-step 32
+```
+
+`--` 后面的参数会原样传给 `python -m omnivoice_triton_server`。脚本会写入
+`/etc/omnivoice/<service>.sh` 和
+`/etc/systemd/system/<service>.service`，默认执行 `daemon-reload`、开机启用并
+重启服务；只想生成 unit 时可以加 `--no-enable` 或 `--no-start`。
+
 ## 重要参数
 
 - `--model-id`
@@ -113,4 +138,3 @@ python tests/test_api.py
 python tests/load_1000_rps100.py --total 1000 --rate 100 --concurrency-limit 512
 python tests/load_mixed_1000.py --total 1000 --rate 100 --ref-audio /path/to/ref.wav
 ```
-

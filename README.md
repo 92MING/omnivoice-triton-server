@@ -94,6 +94,25 @@ were selected for that run; use the device ids that are correct on your machine.
 `scripts/start_server.sh` is only a POSIX shell convenience wrapper around the
 same module entrypoint.
 
+Systemd install example:
+
+```bash
+scripts/install_systemd_service.sh \
+  --cuda-visible-devices 0,1 \
+  --python /path/to/python \
+  --service-name omnivoice-server \
+  -- \
+  --port 9194 \
+  --model-id /path/to/OmniVoice \
+  --gpu-inferer 2 \
+  --max-batch-size 16
+```
+
+Arguments after `--` are passed directly to `python -m
+omnivoice_triton_server`. The script writes `/etc/omnivoice/<service>.sh` and
+`/etc/systemd/system/<service>.service`, then reloads, enables, and restarts the
+unit unless `--no-enable` or `--no-start` is used.
+
 ## Important Arguments
 
 - `--model-id`: local model path or Hugging Face model id.
