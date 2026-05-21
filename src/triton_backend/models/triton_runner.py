@@ -36,14 +36,17 @@ class TritonRunner(BaseRunner):
         device: str = "cuda",
         model_id: str = "k2-fsa/OmniVoice",
         dtype: str = "fp16",
+        attn_backend: str = "auto",
     ) -> None:
         super().__init__(
             device=device,
             model_id=model_id,
             dtype=dtype,
+            attn_backend=attn_backend,
         )
         self.patch_range = patch_range
-        self.enable_sage_attention = enable_sage_attention
+        self.require_sage_attention = attn_backend == "sageattention"
+        self.enable_sage_attention = enable_sage_attention or self.require_sage_attention
 
     def load_model(self) -> None:
         """Load model then apply Triton kernel patches."""
@@ -54,5 +57,10 @@ class TritonRunner(BaseRunner):
             patch_range=self.patch_range,
         )
         if self.enable_sage_attention:
-            apply_sage_attention(patchable, patch_range=self.patch_range)
+            patched = apply_sage_attention(patchable, patch_range=self.patch_range)
+            if self.require_sage_attention and patched <= 0:
+                raise RuntimeError(
+                    "attn_backend=sageattention was requested, but no attention modules were patched. "
+                    "Install the sage extra and verify sageattention supports this GPU."
+                )
         logger.info("TritonRunner ready (Triton kernels applied).")

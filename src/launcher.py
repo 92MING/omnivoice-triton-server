@@ -170,6 +170,21 @@ def add_start_arguments(parser: argparse.ArgumentParser, cfg: Settings) -> None:
     parser.add_argument("--log-retention-days", type=int, default=cfg.log_retention_days)
     parser.add_argument("--model-id", default=cfg.model_id)
     parser.add_argument("--runner-mode", choices=["official", "triton", "hybrid"], default=cfg.runner_mode)
+    parser.add_argument(
+        "--attn-backend",
+        choices=[
+            "auto",
+            "eager",
+            "sdpa",
+            "flex_attention",
+            "flash_attention_2",
+            "flash_attention_3",
+            "flash_attention_4",
+            "sageattention",
+        ],
+        default=cfg.attn_backend,
+        help="Qwen attention backend. auto uses Transformers default; sageattention requires the optional sage extra.",
+    )
     parser.add_argument("--dtype", choices=["fp16", "bf16", "fp32"], default=cfg.dtype)
     parser.add_argument("--device", default=cfg.device)
     parser.add_argument("--request-timeout-s", type=float, default=cfg.request_timeout_s)
@@ -295,6 +310,7 @@ def start(argv: list[str] | None = None) -> None:
     set_arg_env(cfg, "log_retention_days", args.log_retention_days, "OMNIVOICE_LOG_RETENTION_DAYS")
     set_arg_env(cfg, "model_id", args.model_id, "OMNIVOICE_MODEL_ID")
     set_arg_env(cfg, "runner_mode", args.runner_mode, "OMNIVOICE_RUNNER_MODE")
+    set_arg_env(cfg, "attn_backend", args.attn_backend, "OMNIVOICE_ATTN_BACKEND")
     set_arg_env(cfg, "dtype", args.dtype, "OMNIVOICE_DTYPE")
     set_arg_env(cfg, "device", args.device, "OMNIVOICE_DEVICE")
     set_arg_env(cfg, "request_timeout_s", args.request_timeout_s, "OMNIVOICE_REQUEST_TIMEOUT_S")

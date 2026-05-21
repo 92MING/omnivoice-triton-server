@@ -19,6 +19,10 @@ class Settings(BaseSettings):
 
     model_id: str = "k2-fsa/OmniVoice"
     runner_mode: str = Field(default="hybrid", pattern="^(official|triton|hybrid)$")
+    attn_backend: str = Field(
+        default="auto",
+        pattern="^(auto|eager|sdpa|flex_attention|flash_attention_2|flash_attention_3|flash_attention_4|sageattention)$",
+    )
     dtype: str = Field(default="fp16", pattern="^(fp16|bf16|fp32)$")
     device: str = "cuda"
 

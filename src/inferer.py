@@ -153,10 +153,17 @@ class TritonBackend:
         if self.cfg.runner_mode == "official":
             from modeling import OmniVoice
 
+            if self.cfg.attn_backend == "sageattention":
+                raise ValueError("attn_backend=sageattention requires runner_mode=triton or hybrid")
+            model_kwargs: dict[str, Any] = {
+                "device_map": self.cfg.device,
+                "dtype": dtype,
+            }
+            if self.cfg.attn_backend != "auto":
+                model_kwargs["attn_implementation"] = self.cfg.attn_backend
             self.model = OmniVoice.from_pretrained(
                 self.cfg.model_id,
-                device_map=self.cfg.device,
-                dtype=dtype,
+                **model_kwargs,
             )
         else:
             from triton_backend import create_runner
@@ -165,6 +172,7 @@ class TritonBackend:
                 "model_id": self.cfg.model_id,
                 "device": self.cfg.device,
                 "dtype": self.cfg.dtype,
+                "attn_backend": self.cfg.attn_backend,
             }
             if self.cfg.runner_mode == "hybrid":
                 self.cfg.cuda_graph_max_width = self._resolve_cuda_graph_max_width()
@@ -1531,6 +1539,7 @@ class Inferer:
             "pid_file": self.cfg.pid_file,
             "cuda_streams": self.cfg.cuda_streams,
             "runner_mode": self.cfg.runner_mode,
+            "attn_backend": self.cfg.attn_backend,
             "cuda_graph_cache": self.backend.graph_cache_stats(),
             "clone_audio_prompt_cache": self.backend.clone_prompt_cache_stats(),
             "chunk_job_width_cache": self.backend.chunk_job_width_cache_stats(),
@@ -1618,6 +1627,7 @@ async def amain() -> None:
     parser.add_argument("--cuda-graph-max-width", type=int, default=None)
     parser.add_argument("--max-clone-audio-prompt-cache", type=int, default=None)
     parser.add_argument("--default-num-step", type=int, default=None)
+    parser.add_argument("--attn-backend", default=None)
     args = parser.parse_args()
 
     cfg = Settings()
@@ -1647,6 +1657,8 @@ async def amain() -> None:
         cfg.max_clone_audio_prompt_cache = args.max_clone_audio_prompt_cache
     if args.default_num_step is not None:
         cfg.default_num_step = args.default_num_step
+    if args.attn_backend is not None:
+        cfg.attn_backend = args.attn_backend
     if not cfg.log_file:
         run_id = cfg.log_run_id or time.strftime("%Y%m%d-%H%M%S")
         cfg.log_file = str(Path(cfg.log_dir).expanduser() / run_id / "inferer.log")

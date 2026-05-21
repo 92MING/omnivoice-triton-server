@@ -25,6 +25,9 @@ CPU inferer 已移除。扩容方式是增加 GPU inferer 进程。
 
 ```bash
 pip install omnivoice-triton-server
+# 可选 attention kernel：
+pip install "omnivoice-triton-server[flash]"
+pip install "omnivoice-triton-server[sage]"
 
 CUDA_VISIBLE_DEVICES=0,1 \
 omnivoice-triton-server start \
@@ -35,6 +38,7 @@ omnivoice-triton-server start \
   --max-batch-latency 250 \
   --cuda-stream-count 2 \
   --runner-mode hybrid \
+  --attn-backend sdpa \
   --default-num-step 32
 ```
 
@@ -108,6 +112,8 @@ installer 会写入：
 - `--host`, `--port`
 - `--fastapi-workers`
 - `--model-id`, `--runner-mode`, `--dtype`, `--device`
+- `--attn-backend`：`auto`、`sdpa`、`eager`、`flex_attention`、
+  `flash_attention_2`、`flash_attention_3`、`flash_attention_4`、`sageattention`
 - `--gpu-inferer`
 - `--request-timeout-s`, `--infer-start-timeout-s`
 - `--max-batch-size`, `--max-batch-latency`

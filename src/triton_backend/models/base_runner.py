@@ -54,10 +54,12 @@ class BaseRunner:
         device: str = "cuda",
         model_id: str = DEFAULT_MODEL_ID,
         dtype: str | torch.dtype = "fp16",
+        attn_backend: str = "auto",
     ) -> None:
         self.device = device
         self.model_id = model_id
         self.dtype = _resolve_dtype(dtype)
+        self.attn_backend = attn_backend
         self._model: Any = None
 
     def load_model(self) -> None:
@@ -67,11 +69,14 @@ class BaseRunner:
         logger.info("Loading %s ...", self.model_id)
         torch.cuda.reset_peak_memory_stats()
 
-        self._model = OmniVoice.from_pretrained(
-            self.model_id,
-            device_map=self.device,
-            dtype=self.dtype,
-        )
+        model_kwargs: dict[str, Any] = {
+            "device_map": self.device,
+            "dtype": self.dtype,
+        }
+        if self.attn_backend not in {"auto", "sageattention"}:
+            model_kwargs["attn_implementation"] = self.attn_backend
+
+        self._model = OmniVoice.from_pretrained(self.model_id, **model_kwargs)
 
         vram_gb = torch.cuda.max_memory_allocated() / 1024**3
         logger.info("Model loaded. VRAM: %.2f GB", vram_gb)

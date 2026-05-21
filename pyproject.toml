@@ -25,6 +25,18 @@ dependencies = [
   "opencc-python-reimplemented",
 ]
 
+[project.optional-dependencies]
+flash = [
+  "flash-attn",
+]
+sage = [
+  "sageattention",
+]
+attn = [
+  "flash-attn",
+  "sageattention",
+]
+
 [project.scripts]
 omnivoice-triton-server = "launcher:main"
 

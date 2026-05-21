@@ -17,6 +17,13 @@ Install the package:
 pip install omnivoice-triton-server
 ```
 
+Optional attention packages can be installed separately:
+
+```bash
+pip install "omnivoice-triton-server[flash]"
+pip install "omnivoice-triton-server[sage]"
+```
+
 Start a one-GPU server:
 
 ```bash
@@ -37,6 +44,7 @@ omnivoice-triton-server start \
   --max-batch-latency 250 \
   --cuda-stream-count 2 \
   --runner-mode hybrid \
+  --attn-backend sdpa \
   --default-num-step 32
 ```
 

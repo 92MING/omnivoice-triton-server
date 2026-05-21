@@ -32,6 +32,9 @@ inferer processes.
 
 ```bash
 pip install omnivoice-triton-server
+# Optional attention kernels:
+pip install "omnivoice-triton-server[flash]"
+pip install "omnivoice-triton-server[sage]"
 
 CUDA_VISIBLE_DEVICES=0,1 \
 omnivoice-triton-server start \
@@ -42,6 +45,7 @@ omnivoice-triton-server start \
   --max-batch-latency 250 \
   --cuda-stream-count 2 \
   --runner-mode hybrid \
+  --attn-backend sdpa \
   --default-num-step 32
 ```
 
@@ -124,6 +128,9 @@ without changing the active service.
 - `--host`, `--port`
 - `--fastapi-workers`
 - `--model-id`, `--runner-mode`, `--dtype`, `--device`
+- `--attn-backend`: `auto`, `sdpa`, `eager`, `flex_attention`,
+  `flash_attention_2`, `flash_attention_3`, `flash_attention_4`, or
+  `sageattention`
 - `--gpu-inferer`
 - `--request-timeout-s`, `--infer-start-timeout-s`
 - `--max-batch-size`, `--max-batch-latency`

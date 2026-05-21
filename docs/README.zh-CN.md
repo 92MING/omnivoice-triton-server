@@ -16,6 +16,13 @@
 pip install omnivoice-triton-server
 ```
 
+可选 attention kernel：
+
+```bash
+pip install "omnivoice-triton-server[flash]"
+pip install "omnivoice-triton-server[sage]"
+```
+
 单 GPU 启动：
 
 ```bash
@@ -36,6 +43,7 @@ omnivoice-triton-server start \
   --max-batch-latency 250 \
   --cuda-stream-count 2 \
   --runner-mode hybrid \
+  --attn-backend sdpa \
   --default-num-step 32
 ```
 

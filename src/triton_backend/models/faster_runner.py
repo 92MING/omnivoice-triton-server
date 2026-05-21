@@ -565,11 +565,17 @@ class FasterRunner(BaseRunner):
         device: str = "cuda",
         model_id: str = "k2-fsa/OmniVoice",
         dtype: str = "fp16",
+        attn_backend: str = "auto",
         cuda_graph_max_batch_size: int = 16,
         cuda_graph_min_width: int = 32,
         cuda_graph_max_width: int = 128,
     ) -> None:
-        super().__init__(device=device, model_id=model_id, dtype=dtype)
+        super().__init__(
+            device=device,
+            model_id=model_id,
+            dtype=dtype,
+            attn_backend=attn_backend,
+        )
         self.cuda_graph_max_batch_size = cuda_graph_max_batch_size
         self.cuda_graph_min_width = cuda_graph_min_width
         self.cuda_graph_max_width = cuda_graph_max_width

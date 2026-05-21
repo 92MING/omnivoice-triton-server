@@ -40,6 +40,7 @@ class TritonFasterRunner(FasterRunner):
         device: str = "cuda",
         model_id: str = "k2-fsa/OmniVoice",
         dtype: str = "fp16",
+        attn_backend: str = "auto",
         cuda_graph_max_batch_size: int = 16,
         cuda_graph_min_width: int = 32,
         cuda_graph_max_width: int = 128,
@@ -48,12 +49,14 @@ class TritonFasterRunner(FasterRunner):
             device=device,
             model_id=model_id,
             dtype=dtype,
+            attn_backend=attn_backend,
             cuda_graph_max_batch_size=cuda_graph_max_batch_size,
             cuda_graph_min_width=cuda_graph_min_width,
             cuda_graph_max_width=cuda_graph_max_width,
         )
         self.patch_range = patch_range
-        self.enable_sage_attention = enable_sage_attention
+        self.require_sage_attention = attn_backend == "sageattention"
+        self.enable_sage_attention = enable_sage_attention or self.require_sage_attention
 
     def load_model(self) -> None:
         """Load model, apply Triton patches, then install CUDA Graph wrapper."""
@@ -68,7 +71,12 @@ class TritonFasterRunner(FasterRunner):
 
         # Apply SageAttention if enabled
         if self.enable_sage_attention:
-            apply_sage_attention(patchable, patch_range=self.patch_range)
+            patched = apply_sage_attention(patchable, patch_range=self.patch_range)
+            if self.require_sage_attention and patched <= 0:
+                raise RuntimeError(
+                    "attn_backend=sageattention was requested, but no attention modules were patched. "
+                    "Install the sage extra and verify sageattention supports this GPU."
+                )
 
         # Then install CUDA Graph wrapper on the patched model
         from triton_backend.models.faster_runner import _CUDAGraphForward
