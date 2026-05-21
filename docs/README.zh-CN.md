@@ -39,7 +39,7 @@ python -m venv .venv
 pip install -e .
 
 CUDA_VISIBLE_DEVICES=0,1 \
-python -m omnivoice_triton_server \
+python -m omnivoice-triton-server \
   --port 9194 \
   --model-id /path/to/OmniVoice \
   --gpu-inferer 2 \
@@ -51,7 +51,7 @@ python -m omnivoice_triton_server \
 ```
 
 `scripts/start_server.sh` 只是一个 shell 包装器，真正入口是
-`python -m omnivoice_triton_server`。
+`python -m omnivoice-triton-server`。
 
 ## systemd 服务
 
@@ -73,7 +73,7 @@ scripts/install_systemd_service.sh \
   --num-step 32
 ```
 
-`--` 后面的参数会原样传给 `python -m omnivoice_triton_server`。脚本会写入
+`--` 后面的参数会原样传给 `python -m omnivoice-triton-server`。脚本会写入
 `/etc/omnivoice/<service>.sh` 和
 `/etc/systemd/system/<service>.service`，默认执行 `daemon-reload`、开机启用并
 重启服务；只想生成 unit 时可以加 `--no-enable` 或 `--no-start`。

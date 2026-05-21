@@ -158,7 +158,7 @@ service_tmp="$tmpdir/${SERVICE_NAME}.service"
     echo "  $(shell_quote "$arg")"
   done
   echo ')'
-  echo "exec $(shell_quote "$PYTHON_BIN") -m omnivoice_triton_server \"\${APP_ARGS[@]}\""
+  echo "exec $(shell_quote "$PYTHON_BIN") -m omnivoice-triton-server \"\${APP_ARGS[@]}\""
 } > "$wrapper_tmp"
 
 cat > "$service_tmp" <<EOF

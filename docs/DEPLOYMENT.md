@@ -32,7 +32,7 @@ inferer processes.
 pip install -e .
 
 CUDA_VISIBLE_DEVICES=0,1 \
-python -m omnivoice_triton_server \
+python -m omnivoice-triton-server \
   --port 9194 \
   --model-id /path/to/OmniVoice \
   --gpu-inferer 2 \
@@ -44,7 +44,7 @@ python -m omnivoice_triton_server \
 ```
 
 `scripts/start_server.sh` is a POSIX shell convenience wrapper around
-`python -m omnivoice_triton_server`. It is intentionally small:
+`python -m omnivoice-triton-server`. It is intentionally small:
 
 - uses `python` unless `OMNIVOICE_PYTHON` is set,
 - prepends this repository's `src/` to `PYTHONPATH`.

@@ -70,14 +70,14 @@ python -m venv .venv
 pip install -e .
 
 export CUDA_VISIBLE_DEVICES=0
-python -m omnivoice_triton_server
+python -m omnivoice-triton-server
 ```
 
 Two-GPU example:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 \
-python -m omnivoice_triton_server \
+python -m omnivoice-triton-server \
   --port 9194 \
   --model-id /path/to/OmniVoice \
   --gpu-inferer 2 \
@@ -109,7 +109,7 @@ scripts/install_systemd_service.sh \
 ```
 
 Arguments after `--` are passed directly to `python -m
-omnivoice_triton_server`. The script writes `/etc/omnivoice/<service>.sh` and
+omnivoice-triton-server`. The script writes `/etc/omnivoice/<service>.sh` and
 `/etc/systemd/system/<service>.service`, then reloads, enables, and restarts the
 unit unless `--no-enable` or `--no-start` is used.
 

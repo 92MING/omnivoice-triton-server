@@ -154,6 +154,7 @@ def cleanup_old_log_dirs(cfg: Settings) -> None:
 def main() -> None:
     cfg = Settings()
     parser = argparse.ArgumentParser(
+        prog="omnivoice-triton-server",
         description="Launch OmniVoice FastAPI server and GPU inferer processes",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )

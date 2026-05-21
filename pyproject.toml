@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.scripts]
-omnivoice-triton-server = "omnivoice_triton_server.__main__:main"
+omnivoice-triton-server = "launcher:main"
 
 [tool.ruff]
 line-length = 100
