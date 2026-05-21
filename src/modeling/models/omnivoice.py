@@ -1301,21 +1301,28 @@ class OmniVoice(PreTrainedModel):
                 continue
 
             active_indices = [i for i, _ in active]
-            active_width = max(max(c_lens[i], task.target_lens[i]) for i in active_indices)
-            row_indices = torch.tensor(
-                active_indices + [B + i for i in active_indices],
-                dtype=torch.long,
-                device=self.device,
-            )
-            active_input_ids = batch_input_ids.index_select(0, row_indices)[
-                :, :, :active_width
-            ]
-            active_audio_mask = batch_audio_mask.index_select(0, row_indices)[
-                :, :active_width
-            ]
-            active_attention_mask = batch_attention_mask.index_select(0, row_indices)[
-                :, :, :active_width, :active_width
-            ]
+            active_width = max(c_lens[i] for i in active_indices)
+            if len(active_indices) == B:
+                active_input_ids = batch_input_ids[:, :, :active_width]
+                active_audio_mask = batch_audio_mask[:, :active_width]
+                active_attention_mask = batch_attention_mask[
+                    :, :, :active_width, :active_width
+                ]
+            else:
+                row_indices = torch.tensor(
+                    active_indices + [B + i for i in active_indices],
+                    dtype=torch.long,
+                    device=self.device,
+                )
+                active_input_ids = batch_input_ids.index_select(0, row_indices)[
+                    :, :, :active_width
+                ]
+                active_audio_mask = batch_audio_mask.index_select(0, row_indices)[
+                    :, :active_width
+                ]
+                active_attention_mask = batch_attention_mask.index_select(0, row_indices)[
+                    :, :, :active_width, :active_width
+                ]
             batch_logits = self(
                 input_ids=active_input_ids,
                 audio_mask=active_audio_mask,

@@ -22,7 +22,14 @@ from audio import float_to_pcm16
 from chunking import truncate_text_by_word_count
 from config import Settings
 from logging_config import configure_logging
-from modeling.models.omnivoice import VoiceClonePrompt
+from modeling.models.omnivoice import (
+    VoiceClonePrompt,
+    _ZH_RE,
+    _combine_text,
+    _resolve_instruct,
+    _resolve_language,
+    _tokenize_with_nonverbal_tags,
+)
 from metrics_shm import SharedMetricsWriter
 from protocol import InferRequest, InferTask
 
@@ -85,6 +92,28 @@ class ChunkJob:
     prompt_affects_duration: bool = True
 
 
+@dataclass
+class TimingStats:
+    count: int = 0
+    total_s: float = 0.0
+    max_s: float = 0.0
+
+    def add(self, elapsed_s: float) -> None:
+        elapsed_s = max(0.0, float(elapsed_s))
+        self.count += 1
+        self.total_s += elapsed_s
+        self.max_s = max(self.max_s, elapsed_s)
+
+    def snapshot(self) -> dict[str, Any]:
+        avg_s = self.total_s / self.count if self.count else 0.0
+        return {
+            "count": self.count,
+            "total_s": round(self.total_s, 3),
+            "avg_ms": round(avg_s * 1000.0, 3),
+            "max_ms": round(self.max_s * 1000.0, 3),
+        }
+
+
 class TritonBackend:
     def __init__(self, cfg: Settings) -> None:
         self.cfg = cfg
@@ -103,6 +132,21 @@ class TritonBackend:
         self.chunk_job_width_cache: OrderedDict[tuple[Any, ...], int] = OrderedDict()
         self.chunk_job_width_cache_hits = 0
         self.chunk_job_width_cache_misses = 0
+        self.profile: dict[str, TimingStats] = {}
+
+    def _profile_add(self, key: str, elapsed_s: float) -> None:
+        stats = self.profile.get(key)
+        if stats is None:
+            stats = TimingStats()
+            self.profile[key] = stats
+        stats.add(elapsed_s)
+
+    def profile_stats(self) -> dict[str, Any]:
+        return {
+            key: stats.snapshot()
+            for key, stats in sorted(self.profile.items())
+            if stats.count
+        }
 
     def load(self) -> None:
         dtype = {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": torch.float32}[self.cfg.dtype]
@@ -183,6 +227,7 @@ class TritonBackend:
         if not ref_text or not ref_text.strip():
             raise ValueError("ref_text is required for clone prompt creation")
 
+        started_at = time.perf_counter()
         sample_rate = int(getattr(self.model, "sampling_rate", self.cfg.sample_rate))
         ref_wav = load_audio_bytes(ref_audio_bytes, sample_rate)
         prompt = self.model.create_voice_clone_prompt(
@@ -191,9 +236,11 @@ class TritonBackend:
         )
         if str(self.cfg.device).startswith("cuda"):
             torch.cuda.synchronize()
+        self._profile_add("clone_prompt_create", time.perf_counter() - started_at)
         return prompt
 
     def _clone_prompt_from_b64(self, ref_audio_b64: str, ref_text: str | None) -> Any:
+        started_at = time.perf_counter()
         ref_audio_bytes = base64.b64decode(ref_audio_b64.encode("ascii"), validate=True)
         audio_hash = hashlib.sha256(ref_audio_bytes).hexdigest()
         text_hash = hashlib.sha256((ref_text or "").encode("utf-8")).hexdigest()
@@ -203,26 +250,32 @@ class TritonBackend:
         if self.cfg.max_clone_audio_prompt_cache <= 0:
             with self.clone_prompt_cache_lock:
                 self.clone_prompt_cache_misses += 1
-            return self._create_clone_prompt(ref_audio_bytes, ref_text)
+            try:
+                return self._create_clone_prompt(ref_audio_bytes, ref_text)
+            finally:
+                self._profile_add("clone_prompt_total", time.perf_counter() - started_at)
 
         with self.clone_prompt_cache_lock:
-            cached = self.clone_prompt_cache.get(key)
-            if cached is not None:
-                self.clone_prompt_cache.move_to_end(key)
-                self.clone_prompt_cache_hits += 1
-                return cached
+            try:
+                cached = self.clone_prompt_cache.get(key)
+                if cached is not None:
+                    self.clone_prompt_cache.move_to_end(key)
+                    self.clone_prompt_cache_hits += 1
+                    return cached
 
-            self.clone_prompt_cache_misses += 1
-            prompt = self._load_shared_clone_prompt(key_id)
-            if prompt is None:
-                prompt = self._create_clone_prompt(ref_audio_bytes, ref_text)
-                self._store_shared_clone_prompt(key_id, prompt)
-            self.clone_prompt_cache[key] = prompt
-            while len(self.clone_prompt_cache) > self.cfg.max_clone_audio_prompt_cache:
-                _, evicted = self.clone_prompt_cache.popitem(last=False)
-                del evicted
-                self.clone_prompt_cache_evictions += 1
-            return prompt
+                self.clone_prompt_cache_misses += 1
+                prompt = self._load_shared_clone_prompt(key_id)
+                if prompt is None:
+                    prompt = self._create_clone_prompt(ref_audio_bytes, ref_text)
+                    self._store_shared_clone_prompt(key_id, prompt)
+                self.clone_prompt_cache[key] = prompt
+                while len(self.clone_prompt_cache) > self.cfg.max_clone_audio_prompt_cache:
+                    _, evicted = self.clone_prompt_cache.popitem(last=False)
+                    del evicted
+                    self.clone_prompt_cache_evictions += 1
+                return prompt
+            finally:
+                self._profile_add("clone_prompt_total", time.perf_counter() - started_at)
 
     def _shared_clone_prompt_path(self, key_id: str) -> Path | None:
         if not self.cfg.clone_prompt_shared_cache_dir:
@@ -365,9 +418,7 @@ class TritonBackend:
 
         gen_config = kwargs["generation_config"]
         num_steps = [self._task_num_step(task) for task in tasks]
-        if len(set(num_steps)) == 1:
-            gen_config.num_step = num_steps[0]
-        elif not any(ref_audio is not None for ref_audio in ref_audios):
+        if not any(ref_audio is not None for ref_audio in ref_audios):
             stream = self.streams[stream_idx % len(self.streams)]
             start = time.perf_counter()
             if stream is None:
@@ -396,20 +447,33 @@ class TritonBackend:
                             num_steps=num_steps,
                         )
                 stream.synchronize()
-            elapsed = time.perf_counter() - start
+            generate_elapsed = time.perf_counter() - start
             out: list[dict[str, Any]] = []
             for task, token, prompt in zip(
                 tasks,
                 tokens,
                 voice_clone_prompts_for_width or [None] * len(tasks),
             ):
+                decode_started_at = time.perf_counter()
                 audio = self.model._decode_and_post_process(  # noqa: SLF001
                     token.detach(),
                     prompt.ref_rms if prompt is not None else None,
                     self.generation_config(),
                 )
-                out.append(self._audio_result(task, task.seq, audio, elapsed, task.duration))
+                self._profile_add("decode", time.perf_counter() - decode_started_at)
+                out.append(
+                    self._audio_result(
+                        task,
+                        task.seq,
+                        audio,
+                        generate_elapsed,
+                        task.duration,
+                    )
+                )
             return out
+
+        if len(set(num_steps)) == 1:
+            gen_config.num_step = num_steps[0]
 
         stream = self.streams[stream_idx % len(self.streams)]
         start = time.perf_counter()
@@ -655,12 +719,14 @@ class TritonBackend:
                 for job, token in zip(batch_jobs, tokens):
                     task_index = task_indices[id(job.task)]
                     tokens_by_task[task_index][job.seq] = token.detach()
+                    decode_started_at = time.perf_counter()
                     audio = self.model._decode_and_post_process(  # noqa: SLF001
                         token,
                         job.prompt.ref_rms if job.prompt is not None else None,
                         gen_config,
                         apply_edge_fade_pad=False,
                     )
+                    self._profile_add("decode", time.perf_counter() - decode_started_at)
                     results[task_index][job.seq] = self._audio_result(
                         job.task,
                         job.seq,
@@ -701,26 +767,48 @@ class TritonBackend:
             return cached
 
         self.chunk_job_width_cache_misses += 1
+        started_at = time.perf_counter()
         generation_duration = self._generation_duration(job)
-        full_task = self.model._preprocess_all(  # noqa: SLF001
-            text=[job.text],
-            language=[job.task.language],
-            voice_clone_prompt=[job.prompt] if job.prompt is not None else None,
-            instruct=[job.task.instruct],
-            preprocess_prompt=gen_config.preprocess_prompt,
-            speed=None if generation_duration is not None else job.task.speed,
-            duration=[generation_duration] if generation_duration is not None else None,
+        ref_text = job.prompt.ref_text if job.prompt is not None else None
+        ref_audio_tokens = job.prompt.ref_audio_tokens if job.prompt is not None else None
+        ref_audio_width = int(ref_audio_tokens.size(-1)) if ref_audio_tokens is not None else 0
+
+        if generation_duration is not None:
+            frame_rate = float(getattr(self.model.audio_tokenizer.config, "frame_rate", 0.0))
+            target_tokens = max(1, int(generation_duration * frame_rate)) if frame_rate > 0 else 1
+        else:
+            target_tokens = self.model._estimate_target_tokens(  # noqa: SLF001
+                job.text,
+                ref_text,
+                ref_audio_width or None,
+                speed=job.task.speed,
+            )
+
+        lang = _resolve_language(job.task.language)
+        instruct = job.task.instruct
+        if instruct is not None:
+            instruct = _resolve_instruct(
+                instruct,
+                use_zh=bool(job.text and _ZH_RE.search(job.text)),
+            )
+
+        style_text = ""
+        if gen_config.denoise and ref_audio_tokens is not None:
+            style_text += "<|denoise|>"
+        style_text += f"<|lang_start|>{lang if lang else 'None'}<|lang_end|>"
+        style_text += f"<|instruct_start|>{instruct if instruct else 'None'}<|instruct_end|>"
+        style_width = len(self.model.text_tokenizer(style_text).input_ids)
+
+        full_text = _combine_text(ref_text=ref_text, text=job.text)
+        wrapped_text = f"<|text_start|>{full_text}<|text_end|>"
+        text_width = int(
+            _tokenize_with_nonverbal_tags(
+                wrapped_text,
+                self.model.text_tokenizer,
+            ).size(-1)
         )
-        prepared = self.model._prepare_inference_inputs(  # noqa: SLF001
-            full_task.texts[0],
-            full_task.target_lens[0],
-            full_task.ref_texts[0],
-            full_task.ref_audio_tokens[0],
-            full_task.langs[0],
-            full_task.instructs[0],
-            gen_config.denoise,
-        )
-        width = int(prepared["input_ids"].size(2))
+        width = style_width + text_width + ref_audio_width + int(target_tokens)
+        self._profile_add("width_estimate", time.perf_counter() - started_at)
         self.chunk_job_width_cache[cache_key] = width
         while len(self.chunk_job_width_cache) > 4096:
             self.chunk_job_width_cache.popitem(last=False)
@@ -950,6 +1038,7 @@ class TritonBackend:
         if num_steps:
             gen_config.num_step = max(max(1, int(step)) for step in num_steps)
         has_duration = any(duration is not None for duration in durations)
+        preprocess_started_at = time.perf_counter()
         full_task = self.model._preprocess_all(  # noqa: SLF001
             text=texts,
             language=language,
@@ -959,9 +1048,13 @@ class TritonBackend:
             speed=None if has_duration else speed,
             duration=durations if has_duration else None,
         )
+        self._profile_add("preprocess", time.perf_counter() - preprocess_started_at)
         if num_steps:
             full_task.num_steps = [max(1, int(step)) for step in num_steps]
-        return self.model._generate_iterative(full_task, gen_config)  # noqa: SLF001
+        iterative_started_at = time.perf_counter()
+        tokens = self.model._generate_iterative(full_task, gen_config)  # noqa: SLF001
+        self._profile_add("iterative_launch", time.perf_counter() - iterative_started_at)
+        return tokens
 
     def _audio_result(
         self,
@@ -973,7 +1066,9 @@ class TritonBackend:
         *,
         apply_postprocess: bool = True,
     ) -> dict[str, Any]:
+        numpy_started_at = time.perf_counter()
         arr = np.asarray(audio, dtype=np.float32).reshape(-1)
+        self._profile_add("audio_numpy", time.perf_counter() - numpy_started_at)
         empty_audio_fallback = False
         if arr.size == 0:
             fallback_s = duration or 0.25
@@ -994,11 +1089,13 @@ class TritonBackend:
             and hasattr(self.model, "_post_process_audio")
         ):
             try:
+                postprocess_started_at = time.perf_counter()
                 processed = self.model._post_process_audio(  # noqa: SLF001
                     arr,
                     postprocess_output=True,
                     ref_rms=None,
                 )
+                self._profile_add("postprocess", time.perf_counter() - postprocess_started_at)
                 processed_arr = np.asarray(processed, dtype=np.float32).reshape(-1)
                 if processed_arr.size:
                     arr = processed_arr
@@ -1008,12 +1105,17 @@ class TritonBackend:
                     type(exc).__name__,
                     exc,
                 )
+        pcm_started_at = time.perf_counter()
         pcm = float_to_pcm16(arr)
+        self._profile_add("pcm16", time.perf_counter() - pcm_started_at)
+        b64_started_at = time.perf_counter()
+        pcm_b64 = base64.b64encode(pcm).decode("ascii")
+        self._profile_add("base64_encode", time.perf_counter() - b64_started_at)
         return {
             "request_id": task.request_id,
             "task_id": f"{task.request_id}:{seq}",
             "seq": seq,
-            "pcm_b64": base64.b64encode(pcm).decode("ascii"),
+            "pcm_b64": pcm_b64,
             "sample_rate": self.cfg.sample_rate,
             "pcm_bytes": len(pcm),
             "batch_elapsed_s": elapsed,
@@ -1430,6 +1532,7 @@ class Inferer:
             "cuda_graph_cache": self.backend.graph_cache_stats(),
             "clone_audio_prompt_cache": self.backend.clone_prompt_cache_stats(),
             "chunk_job_width_cache": self.backend.chunk_job_width_cache_stats(),
+            "profile": self.backend.profile_stats(),
         }
 
 

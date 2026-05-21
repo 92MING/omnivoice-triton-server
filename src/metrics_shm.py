@@ -179,6 +179,7 @@ class SharedMetricsGroupReader:
             bucket = by_kind.setdefault(kind, {key: 0 for key in numeric_keys})
             for key in numeric_keys:
                 bucket[key] += int(snapshot.get(key) or 0)
+        profile = self._merge_profile(snapshots)
         return {
             "type": "multi_inferer_metrics",
             "status": "healthy" if ready_count else "metrics_unavailable",
@@ -190,6 +191,7 @@ class SharedMetricsGroupReader:
             "avg_batch_size": round(totals["total_tasks"] / totals["total_batches"], 3)
             if totals["total_batches"]
             else 0.0,
+            "profile": profile,
             "inferers": snapshots,
             "_metrics_snapshot_written_at": time.time(),
             "metrics_transport": "shared_memory_group",
@@ -198,3 +200,36 @@ class SharedMetricsGroupReader:
     def close(self) -> None:
         for reader in self.readers:
             reader.close()
+
+    def _merge_profile(self, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+        merged: dict[str, dict[str, float]] = {}
+        for snapshot in snapshots:
+            profile = snapshot.get("profile")
+            if not isinstance(profile, dict):
+                continue
+            for key, value in profile.items():
+                if not isinstance(value, dict):
+                    continue
+                bucket = merged.setdefault(
+                    str(key),
+                    {
+                        "count": 0.0,
+                        "total_s": 0.0,
+                        "max_ms": 0.0,
+                    },
+                )
+                bucket["count"] += float(value.get("count") or 0)
+                bucket["total_s"] += float(value.get("total_s") or 0.0)
+                bucket["max_ms"] = max(bucket["max_ms"], float(value.get("max_ms") or 0.0))
+
+        result: dict[str, Any] = {}
+        for key, value in sorted(merged.items()):
+            count = int(value["count"])
+            total_s = float(value["total_s"])
+            result[key] = {
+                "count": count,
+                "total_s": round(total_s, 3),
+                "avg_ms": round((total_s / count) * 1000.0, 3) if count else 0.0,
+                "max_ms": round(float(value["max_ms"]), 3),
+            }
+        return result
