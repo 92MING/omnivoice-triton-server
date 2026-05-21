@@ -6,6 +6,103 @@ inferer processes for model execution.
 
 中文说明: [docs/README.zh-CN.md](docs/README.zh-CN.md)
 
+## Quick Start
+
+Install the package:
+
+```bash
+pip install omnivoice-triton-server
+```
+
+Start a one-GPU server:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 \
+omnivoice-triton-server start \
+  --model-id /path/to/OmniVoice
+```
+
+Start a two-GPU server:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 \
+omnivoice-triton-server start \
+  --port 9194 \
+  --model-id /path/to/OmniVoice \
+  --gpu-inferer 2 \
+  --max-batch-size 16 \
+  --max-batch-latency 250 \
+  --cuda-stream-count 2 \
+  --runner-mode hybrid \
+  --num-step 32
+```
+
+Installing the package adds the `omnivoice-triton-server` console command. The
+module entrypoint is also available:
+
+```bash
+python -m omnivoice-triton-server start --port 9194 --model-id /path/to/OmniVoice
+```
+
+Stop a foreground/background process by port or pid file:
+
+```bash
+omnivoice-triton-server stop --port 9194
+omnivoice-triton-server stop --pid-file logs/20260520-212301/server.pid --no-port
+```
+
+Install or update a systemd service:
+
+```bash
+omnivoice-triton-server install-service \
+  --cuda-visible-devices 0,1 \
+  --python "$(command -v python)" \
+  --service-name omnivoice-server \
+  --working-dir "$PWD" \
+  -- \
+  --port 9194 \
+  --model-id /path/to/OmniVoice \
+  --gpu-inferer 2 \
+  --max-batch-size 16
+```
+
+Stop a systemd deployment:
+
+```bash
+omnivoice-triton-server stop --systemd --service-name omnivoice-server
+```
+
+Use the CUDA device ids that are correct for your machine. `scripts/start_server.sh`
+is only a POSIX shell convenience wrapper around the same module entrypoint.
+
+For source-tree deployments, the repository also includes:
+
+```bash
+scripts/install_systemd_service.sh \
+  --cuda-visible-devices 0,1 \
+  --python /path/to/python \
+  --service-name omnivoice-server \
+  -- \
+  --port 9194 \
+  --model-id /path/to/OmniVoice \
+  --gpu-inferer 2 \
+  --max-batch-size 16
+```
+
+Arguments after `--` are passed directly to `omnivoice-triton-server start`.
+The script writes `/etc/omnivoice/<service>.sh` and
+`/etc/systemd/system/<service>.service`, then reloads, enables, and restarts
+the unit unless `--no-enable` or `--no-start` is used.
+
+## Requirements
+
+- Python 3.12 or newer.
+- PyTorch, Triton, Transformers, FastAPI, and the packages in
+  `requirements.txt`.
+- NVIDIA GPU for inference. The default runner mode is `hybrid`.
+- OmniVoice model files available either from a Hugging Face model id or a local
+  path passed with `--model-id` / `OMNIVOICE_MODEL_ID`.
+
 ## Origin
 
 This repository combines three code lines into one deployable service:
@@ -52,101 +149,6 @@ mirror; it is a server-oriented integration.
   for oversized batches.
 
 CPU inferer code was removed. Scale this server with GPU inferer processes.
-
-## Requirements
-
-- Python 3.12 or newer.
-- PyTorch, Triton, Transformers, FastAPI, and the packages in
-  `requirements.txt`.
-- NVIDIA GPU for inference. The default runner mode is `hybrid`.
-- OmniVoice model files available either from a Hugging Face model id or a local
-  path passed with `--model-id` / `OMNIVOICE_MODEL_ID`.
-
-## Quick Start
-
-```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install omnivoice-triton-server
-
-export CUDA_VISIBLE_DEVICES=0
-omnivoice-triton-server start
-```
-
-Two-GPU example:
-
-```bash
-CUDA_VISIBLE_DEVICES=0,1 \
-omnivoice-triton-server start \
-  --port 9194 \
-  --model-id /path/to/OmniVoice \
-  --gpu-inferer 2 \
-  --max-batch-size 16 \
-  --max-batch-latency 250 \
-  --cuda-stream-count 2 \
-  --runner-mode hybrid \
-  --num-step 32
-```
-
-Installing the package adds an `omnivoice-triton-server` Python console command.
-The module entrypoint is also available:
-
-```bash
-python -m omnivoice-triton-server start --port 9194
-```
-
-Stop a foreground/background process by port or pid file:
-
-```bash
-omnivoice-triton-server stop --port 9194
-omnivoice-triton-server stop --pid-file logs/20260520-212301/server.pid --no-port
-```
-
-Stop a systemd deployment:
-
-```bash
-omnivoice-triton-server stop --systemd --service-name omnivoice-server
-```
-
-Install or update a systemd deployment from the installed CLI:
-
-```bash
-omnivoice-triton-server install-service \
-  --cuda-visible-devices 0,1 \
-  --python "$(command -v python)" \
-  --service-name omnivoice-server \
-  --working-dir "$PWD" \
-  -- \
-  --port 9194 \
-  --model-id /path/to/OmniVoice \
-  --gpu-inferer 2 \
-  --max-batch-size 16
-```
-
-`CUDA_VISIBLE_DEVICES` is a deployment choice. The benchmark below used
-`CUDA_VISIBLE_DEVICES=6,7` on one 8-GPU test server because those two devices
-were selected for that run; use the device ids that are correct on your machine.
-`scripts/start_server.sh` is only a POSIX shell convenience wrapper around the
-same module entrypoint.
-
-The repository also includes a shell wrapper for source-tree deployments:
-
-```bash
-scripts/install_systemd_service.sh \
-  --cuda-visible-devices 0,1 \
-  --python /path/to/python \
-  --service-name omnivoice-server \
-  -- \
-  --port 9194 \
-  --model-id /path/to/OmniVoice \
-  --gpu-inferer 2 \
-  --max-batch-size 16
-```
-
-Arguments after `--` are passed directly to `omnivoice-triton-server start`.
-The script writes `/etc/omnivoice/<service>.sh` and
-`/etc/systemd/system/<service>.service`, then reloads, enables, and restarts
-the unit unless `--no-enable` or `--no-start` is used.
 
 ## Important Arguments
 
@@ -216,28 +218,25 @@ Supported response formats are `wav` and raw `pcm`.
 
 ## Benchmark
 
-These numbers are for capacity planning on one local test host. They are not a
-hardware-independent promise.
+These numbers are a reference result for the hardware and launch configuration
+below. They are not a hardware-independent promise.
 
 Test configuration:
 
 - Hardware used by this service: 2 x NVIDIA GeForce RTX 3080, 20 GiB each.
-- Host inventory: 8 visible RTX 3080 GPUs; this run used
-  `CUDA_VISIBLE_DEVICES=6,7`.
 - Launch: `--gpu-inferer 2 --fastapi-workers 2 --runner-mode hybrid --dtype fp16
   --max-batch-size 16 --max-batch-latency 250 --cuda-stream-count 2
   --num-step 32`.
-- Load generator: 1000 requests scheduled at 100 req/s. Latency therefore
-  includes queueing after the offered load exceeds service capacity.
+- Load generator: 1000 requests scheduled at 100 req/s.
 - Audio quality smoke: auto, design, and clone outputs were checked by ASR on
   both short and long texts.
 
-### Throughput And Latency
+### Throughput
 
-| Workload | Wall time | Completed req/s | Generated audio | Audio realtime | RTF | Mean latency | p50 | p95 | p99 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Short speech/design | 61.553 s | 16.246 | 786.100 s | 12.771x | 0.0783 | 27.2485 s | 26.6065 s | 50.8381 s | 54.6932 s |
-| Mixed short/medium/long speech/design/clone | 247.159 s | 4.046 | 2,648.752 s | 10.717x | 0.0933 | 120.7916 s | 119.3613 s | 228.5990 s | 236.4849 s |
+| Workload | Wall time | Completed req/s | Generated audio | Audio realtime | RTF |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Short speech/design | 61.553 s | 16.246 | 786.100 s | 12.771x | 0.0783 |
+| Mixed short/medium/long speech/design/clone | 247.159 s | 4.046 | 2,648.752 s | 10.717x | 0.0933 |
 
 `Audio realtime` is generated audio duration divided by wall time. `RTF` is
 wall time divided by generated audio duration.
@@ -252,14 +251,6 @@ wall time divided by generated audio duration.
 The mixed run has more backend tasks than client requests because long inputs are
 split into chunks. The useful batching signal is `Tasks/backend batch`: higher
 means the scheduler kept the GPU inferers fed with larger model batches.
-
-### Mixed Workload Breakdown
-
-| Kind | Requests | Mean latency | p95 | Max |
-| --- | ---: | ---: | ---: | ---: |
-| speech | 900 | 122.8774 s | 228.6261 s | 236.6119 s |
-| design | 50 | 129.3640 s | 229.6973 s | 230.9176 s |
-| clone | 50 | 74.6742 s | 143.6043 s | 145.6617 s |
 
 ### CUDA Graph Behavior
 

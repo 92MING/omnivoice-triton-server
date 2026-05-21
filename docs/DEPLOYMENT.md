@@ -288,23 +288,21 @@ Important fields:
 
 ## Benchmarks
 
-Latest local benchmark on one project test host. These numbers are meant for
-capacity planning on this hardware and launch configuration.
+Latest local benchmark. These numbers are meant for capacity planning on this
+hardware class and launch configuration.
 
 - Hardware used by this service: 2 x NVIDIA GeForce RTX 3080, 20 GiB each.
-- Test host GPU inventory: 8 visible RTX 3080 GPUs.
-- Devices selected for this run: `CUDA_VISIBLE_DEVICES=6,7`.
 - Launch: `--gpu-inferer 2 --fastapi-workers 2 --runner-mode hybrid --dtype fp16
   --max-batch-size 16 --max-batch-latency 250 --cuda-stream-count 2
   --num-step 32`.
 - Load: 1000 requests at a 100 req/s target arrival rate.
 
-### Throughput And Latency
+### Throughput
 
-| Workload | Wall time | Completed req/s | Generated audio | Audio realtime | RTF | Mean latency | p50 | p95 | p99 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Short speech/design | 61.553 s | 16.246 | 786.100 s | 12.771x | 0.0783 | 27.2485 s | 26.6065 s | 50.8381 s | 54.6932 s |
-| Mixed short/medium/long speech/design/clone | 247.159 s | 4.046 | 2,648.752 s | 10.717x | 0.0933 | 120.7916 s | 119.3613 s | 228.5990 s | 236.4849 s |
+| Workload | Wall time | Completed req/s | Generated audio | Audio realtime | RTF |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Short speech/design | 61.553 s | 16.246 | 786.100 s | 12.771x | 0.0783 |
+| Mixed short/medium/long speech/design/clone | 247.159 s | 4.046 | 2,648.752 s | 10.717x | 0.0933 |
 
 ### Scheduler Efficiency
 
@@ -312,14 +310,6 @@ capacity planning on this hardware and launch configuration.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Short speech/design | 1,000 | 1,000 | 1.000 | 68 | 14.706 | 16.246 |
 | Mixed short/medium/long speech/design/clone | 1,000 | 1,733 | 1.733 | 67 | 25.866 | 7.011 |
-
-### Mixed Workload Breakdown
-
-| Kind | Requests | Mean latency | p95 | Max |
-| --- | ---: | ---: | ---: | ---: |
-| speech | 900 | 122.8774 s | 228.6261 s | 236.6119 s |
-| design | 50 | 129.3640 s | 229.6973 s | 230.9176 s |
-| clone | 50 | 74.6742 s | 143.6043 s | 145.6617 s |
 
 ### CUDA Graph Behavior
 
