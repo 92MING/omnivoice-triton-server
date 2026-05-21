@@ -712,6 +712,8 @@ class OmniVoice(PreTrainedModel):
         tokens: Union[torch.Tensor, List[torch.Tensor]],
         rms: Union[float, None],
         gen_config: OmniVoiceGenerationConfig,
+        *,
+        apply_edge_fade_pad: bool = True,
     ) -> np.ndarray:
         """
         Args:
@@ -731,7 +733,11 @@ class OmniVoice(PreTrainedModel):
                 .numpy()
                 for t in tokens
             ]
-            audio_waveform = cross_fade_chunks(chunk_audios, self.sampling_rate)
+            audio_waveform = cross_fade_chunks(
+                chunk_audios,
+                self.sampling_rate,
+                silence_duration=0.12,
+            )
         else:
             audio_waveform = (
                 self.audio_tokenizer.decode(tokens.to(tokenizer_device).unsqueeze(0))
@@ -744,6 +750,7 @@ class OmniVoice(PreTrainedModel):
             audio_waveform,
             postprocess_output=gen_config.postprocess_output,
             ref_rms=rms,
+            apply_edge_fade_pad=apply_edge_fade_pad,
         )
         return audio_waveform.squeeze(0)
 
@@ -752,6 +759,8 @@ class OmniVoice(PreTrainedModel):
         generated_audio: np.ndarray,
         postprocess_output: bool,
         ref_rms: Union[float, None],
+        *,
+        apply_edge_fade_pad: bool = True,
     ) -> np.ndarray:
         """Optionally remove long silences, adjust volume, and add edge padding.
 
@@ -795,10 +804,11 @@ class OmniVoice(PreTrainedModel):
             if peak > 1e-6:
                 generated_audio = generated_audio / peak * 0.5
 
-        generated_audio = fade_and_pad_audio(
-            generated_audio,
-            sample_rate=self.sampling_rate,
-        )
+        if apply_edge_fade_pad:
+            generated_audio = fade_and_pad_audio(
+                generated_audio,
+                sample_rate=self.sampling_rate,
+            )
         return generated_audio.squeeze(0) if squeeze_channel else generated_audio
 
     def _generate_chunked(

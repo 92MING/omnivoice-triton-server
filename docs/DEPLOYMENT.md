@@ -235,8 +235,8 @@ counter:
 
 The splitter recursively prefers paragraph, newline, sentence, semicolon/colon,
 comma, and whitespace boundaries. It then scores candidate chunks to stay close
-to the target word count while allowing a small soft overflow when that keeps a
-better semantic boundary.
+to the target word count while allowing bounded soft overflow when that preserves
+a better semantic boundary or avoids very short fragments.
 
 `chunk_mode` controls chunk execution:
 

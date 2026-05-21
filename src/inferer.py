@@ -43,6 +43,14 @@ def _next_power_of_two(value: int) -> int:
     return 1 << (value - 1).bit_length()
 
 
+def _cuda_graph_width_bucket(value: int) -> int:
+    value = max(1, int(value))
+    for bucket in (64, 128, 160, 256, 512, 640, 768, 1024, 1536, 2048):
+        if value <= bucket:
+            return bucket
+    return _next_power_of_two(value)
+
+
 def _model_max_position_embeddings(model_id: str) -> int | None:
     config_path = Path(model_id).expanduser() / "config.json"
     try:
@@ -74,6 +82,7 @@ class ChunkJob:
     text: str
     duration: float | None
     prompt: VoiceClonePrompt | None
+    prompt_affects_duration: bool = True
 
 
 class TritonBackend:
@@ -145,18 +154,21 @@ class TritonBackend:
             return self.cfg.cuda_graph_max_width
 
         expected_chunk_words = self.cfg.text_chunk_words
-        expected_width = _next_power_of_two(
-            expected_chunk_words * self.cfg.cuda_graph_auto_width_tokens_per_word
+        expected_width = _cuda_graph_width_bucket(
+            expected_chunk_words * self.cfg.cuda_graph_auto_width_tokens_per_word + 128
         )
         model_limit = _model_max_position_embeddings(self.cfg.model_id)
         upper_bound = self.cfg.cuda_graph_auto_max_width
         if model_limit is not None:
             upper_bound = min(upper_bound, model_limit)
         resolved = min(max(128, expected_width), upper_bound)
-        resolved = _next_power_of_two(resolved)
+        resolved = _cuda_graph_width_bucket(resolved)
+        if resolved > upper_bound:
+            resolved = upper_bound
         logger.info(
             "Resolved cuda_graph_max_width=%d from text_chunk_words=%d "
-            "tokens_per_word=%d model_max_position_embeddings=%s auto_max_width=%d",
+            "tokens_per_word=%d prompt_margin_tokens=128 "
+            "model_max_position_embeddings=%s auto_max_width=%d",
             resolved,
             self.cfg.text_chunk_words,
             self.cfg.cuda_graph_auto_width_tokens_per_word,
@@ -464,6 +476,10 @@ class TritonBackend:
                         chunks[seq],
                         durations_by_task[task_index][seq],
                         prompt,
+                        prompt_affects_duration=self._prompt_affects_duration(
+                            task,
+                            prompt,
+                        ),
                     )
                 )
 
@@ -509,9 +525,7 @@ class TritonBackend:
             zip(tasks, chunks_by_task, durations_by_task, base_prompts)
         ):
             if len(chunks) > 1 and task.mode in {"auto", "design"} and base_prompt is None:
-                initial_jobs.append(
-                    ChunkJob(task, 0, chunks[0], durations[0], None)
-                )
+                initial_jobs.append(ChunkJob(task, 0, chunks[0], durations[0], None))
                 deferred_task_indices.append(task_index)
                 continue
             for seq, chunk in enumerate(chunks):
@@ -536,7 +550,14 @@ class TritonBackend:
             )
             for seq in range(1, len(chunks)):
                 deferred_jobs.append(
-                    ChunkJob(task, seq, chunks[seq], durations[seq], prompt)
+                    ChunkJob(
+                        task,
+                        seq,
+                        chunks[seq],
+                        durations[seq],
+                        prompt,
+                        prompt_affects_duration=False,
+                    )
                 )
 
         self._run_chunk_jobs(deferred_jobs, results, tokens_by_task, tasks)
@@ -579,7 +600,7 @@ class TritonBackend:
                     language=[job.task.language for job in batch_jobs],
                     instruct=[job.task.instruct for job in batch_jobs],
                     speed=[job.task.speed for job in batch_jobs],
-                    durations=[job.duration for job in batch_jobs],
+                    durations=[self._generation_duration(job) for job in batch_jobs],
                     voice_clone_prompts=prompt_list,
                 )
                 for job, token in zip(batch_jobs, tokens):
@@ -589,14 +610,35 @@ class TritonBackend:
                         token,
                         job.prompt.ref_rms if job.prompt is not None else None,
                         gen_config,
+                        apply_edge_fade_pad=False,
                     )
                     results[task_index][job.seq] = self._audio_result(
                         job.task,
                         job.seq,
                         audio,
                         0.0,
-                        job.duration,
+                        self._generation_duration(job),
+                        apply_postprocess=False,
                     )
+
+    def _generation_duration(self, job: ChunkJob) -> float | None:
+        if job.duration is not None:
+            return job.duration
+        if job.prompt is None or job.prompt_affects_duration:
+            return None
+        if job.task.mode not in {"auto", "design"}:
+            return None
+
+        target_tokens = self.model._estimate_target_tokens(  # noqa: SLF001
+            job.text,
+            None,
+            None,
+            speed=job.task.speed,
+        )
+        frame_rate = float(getattr(self.model.audio_tokenizer.config, "frame_rate", 0.0))
+        if frame_rate <= 0.0:
+            return None
+        return max(1, int(target_tokens)) / frame_rate
 
     def _estimate_chunk_job_width(self, job: ChunkJob, gen_config: Any) -> int:
         cache_key = self._chunk_job_width_cache_key(job, gen_config)
@@ -607,14 +649,15 @@ class TritonBackend:
             return cached
 
         self.chunk_job_width_cache_misses += 1
+        generation_duration = self._generation_duration(job)
         full_task = self.model._preprocess_all(  # noqa: SLF001
             text=[job.text],
             language=[job.task.language],
             voice_clone_prompt=[job.prompt] if job.prompt is not None else None,
             instruct=[job.task.instruct],
             preprocess_prompt=gen_config.preprocess_prompt,
-            speed=None if job.duration is not None else job.task.speed,
-            duration=[job.duration] if job.duration is not None else None,
+            speed=None if generation_duration is not None else job.task.speed,
+            duration=[generation_duration] if generation_duration is not None else None,
         )
         prepared = self.model._prepare_inference_inputs(  # noqa: SLF001
             full_task.texts[0],
@@ -647,13 +690,14 @@ class TritonBackend:
             job.task.language,
             job.task.instruct,
             job.task.speed,
-            job.duration,
+            self._generation_duration(job),
+            job.prompt_affects_duration,
             bool(gen_config.denoise),
             prompt_key,
         )
 
     def _width_bucket_for_job(self, width: int) -> int:
-        for bucket in (64, 128, 160, 192, 256, 512, self.cfg.cuda_graph_max_width):
+        for bucket in (64, 128, 160, 192, 256, 512, 640, 768, self.cfg.cuda_graph_max_width):
             if bucket > 0 and width <= bucket:
                 return bucket
         return width
@@ -755,12 +799,21 @@ class TritonBackend:
                 previous_text=previous_text,
                 previous_tokens=previous_tokens,
             )
+            job = ChunkJob(
+                task,
+                seq,
+                chunk,
+                durations[seq],
+                prompt,
+                prompt_affects_duration=self._prompt_affects_duration(task, prompt),
+            )
+            generation_duration = self._generation_duration(job)
             token = self._generate_tokens(
                 texts=[chunk],
                 language=task.language,
                 instruct=task.instruct,
                 speed=task.speed,
-                durations=[durations[seq]],
+                durations=[generation_duration],
                 voice_clone_prompts=[prompt] if prompt is not None else None,
             )[0]
             results.append(
@@ -771,9 +824,11 @@ class TritonBackend:
                         token,
                         prompt.ref_rms if prompt is not None else None,
                         self.generation_config(),
+                        apply_edge_fade_pad=False,
                     ),
                     0.0,
-                    durations[seq],
+                    generation_duration,
+                    apply_postprocess=False,
                 )
             )
             previous_text = chunk
@@ -805,6 +860,15 @@ class TritonBackend:
             ref_text=f"{base_prompt.ref_text} {previous_text}".strip(),
             ref_rms=base_prompt.ref_rms,
         )
+
+    def _prompt_affects_duration(
+        self,
+        task: InferTask,
+        prompt: VoiceClonePrompt | None,
+    ) -> bool:
+        if prompt is None:
+            return True
+        return task.mode not in {"auto", "design"}
 
     def _continuity_audio_tokens(self, tokens: torch.Tensor) -> torch.Tensor:
         tokens = tokens.detach()
@@ -849,6 +913,8 @@ class TritonBackend:
         audio: Any,
         elapsed: float,
         duration: float | None,
+        *,
+        apply_postprocess: bool = True,
     ) -> dict[str, Any]:
         arr = np.asarray(audio, dtype=np.float32).reshape(-1)
         empty_audio_fallback = False
@@ -864,6 +930,8 @@ class TritonBackend:
             )
         min_postprocess_samples = int(self.cfg.sample_rate * 1.0)
         if (
+            apply_postprocess
+            and
             self.cfg.postprocess_output
             and arr.size >= min_postprocess_samples
             and hasattr(self.model, "_post_process_audio")

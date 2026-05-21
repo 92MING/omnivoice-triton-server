@@ -48,7 +48,7 @@ Stop a foreground/background process by port or pid file:
 
 ```bash
 omnivoice-triton-server stop --port 9194
-omnivoice-triton-server stop --pid-file logs/20260520-212301/server.pid --no-port
+omnivoice-triton-server stop --pid-file logs/<run-id>/server.pid --no-port
 ```
 
 Install or update a systemd service:

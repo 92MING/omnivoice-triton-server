@@ -63,10 +63,10 @@ class Settings(BaseSettings):
     postprocess_output: bool = True
 
     text_chunk_words: int = Field(default=32, ge=4)
-    text_chunk_soft_overflow_ratio: float = Field(default=0.12, ge=0.0)
-    text_chunk_same_sentence_penalty: int = Field(default=1, ge=0)
-    text_chunk_sentence_boundary_penalty: int = Field(default=4, ge=0)
+    text_chunk_soft_overflow_ratio: float = Field(default=0.5, ge=0.0)
+    text_chunk_same_sentence_penalty: int = Field(default=0, ge=0)
+    text_chunk_sentence_boundary_penalty: int = Field(default=2, ge=0)
     text_chunk_fragment_boundary_penalty: int = Field(default=24, ge=0)
-    text_chunk_short_underfill_ratio: float = Field(default=0.5, ge=0.0)
-    text_chunk_short_underfill_penalty: int = Field(default=1, ge=0)
+    text_chunk_short_underfill_ratio: float = Field(default=0.75, ge=0.0)
+    text_chunk_short_underfill_penalty: int = Field(default=2, ge=0)
     default_voice_instructions: str = "warm, clear, natural speaking voice"

@@ -501,15 +501,69 @@ def _split_span_recursive(
     return _hard_split_span(text, start, end, max_word_count, soft_overflow_ratio)
 
 
+_STRONG_END_RE = re.compile(r"(?:[。！？!?]+|(?<!\d)\.(?!\d))[\"'”’」』）\]]*$", re.UNICODE)
+
+
+def _ends_with_strong_boundary(text: str, start: int, end: int) -> bool:
+    start, end = _trim_span(text, start, end)
+    return start < end and bool(_STRONG_END_RE.search(text[start:end]))
+
+
+def _merge_short_spans(
+    text: str,
+    spans: list[tuple[int, int]],
+    max_word_count: int,
+    soft_overflow_ratio: float,
+    short_underfill_ratio: float,
+) -> list[tuple[int, int]]:
+    if len(spans) <= 1:
+        return spans
+
+    allowed_word_count = _allowed_word_count(max_word_count, soft_overflow_ratio)
+    rescue_allowed_word_count = max(
+        allowed_word_count,
+        math.ceil(max_word_count * (1.0 + soft_overflow_ratio + 0.15)),
+    )
+    short_word_count = max(1, math.floor(max_word_count * short_underfill_ratio))
+    span_word_counts = [_span_word_count(text, start, end) for start, end in spans]
+
+    merged: list[tuple[int, int]] = []
+    index = 0
+    while index < len(spans):
+        start, end = spans[index]
+        current_wc = span_word_counts[index]
+        if current_wc >= short_word_count or index == len(spans) - 1:
+            merged.append((start, end))
+            index += 1
+            continue
+
+        next_start, next_end = spans[index + 1]
+        next_wc = span_word_counts[index + 1]
+        combined_wc = current_wc + next_wc
+        strong_to_nonfinal_fragment = (
+            _ends_with_strong_boundary(text, start, end)
+            and not _ends_with_strong_boundary(text, next_start, next_end)
+        )
+        if combined_wc <= rescue_allowed_word_count and not strong_to_nonfinal_fragment:
+            merged.append((start, next_end))
+            index += 2
+            continue
+
+        merged.append((start, end))
+        index += 1
+
+    return merged
+
+
 def split_text_by_word_count(
     text: str,
     max_word_count: int = 32,
-    soft_overflow_ratio: float = 0.12,
-    same_sentence_penalty: int = 1,
-    sentence_boundary_penalty: int = 4,
+    soft_overflow_ratio: float = 0.5,
+    same_sentence_penalty: int = 0,
+    sentence_boundary_penalty: int = 2,
     fragment_boundary_penalty: int = 24,
-    short_underfill_ratio: float = 0.5,
-    short_underfill_penalty: int = 1,
+    short_underfill_ratio: float = 0.75,
+    short_underfill_penalty: int = 2,
 ) -> list[TextChunk]:
     """Split text on semantic boundaries while packing chunks near the word limit."""
     if max_word_count <= 0:
@@ -540,6 +594,13 @@ def split_text_by_word_count(
         short_underfill_ratio,
         short_underfill_penalty,
     )
+    spans = _merge_short_spans(
+        text,
+        spans,
+        max_word_count,
+        soft_overflow_ratio,
+        short_underfill_ratio,
+    )
 
     result: list[TextChunk] = []
     for start, end in spans:
@@ -552,12 +613,12 @@ def split_text_by_word_count(
 def split_text(
     text: str,
     max_word_count: int = 32,
-    soft_overflow_ratio: float = 0.12,
-    same_sentence_penalty: int = 1,
-    sentence_boundary_penalty: int = 4,
+    soft_overflow_ratio: float = 0.5,
+    same_sentence_penalty: int = 0,
+    sentence_boundary_penalty: int = 2,
     fragment_boundary_penalty: int = 24,
-    short_underfill_ratio: float = 0.5,
-    short_underfill_penalty: int = 1,
+    short_underfill_ratio: float = 0.75,
+    short_underfill_penalty: int = 2,
 ) -> list[str]:
     return [
         chunk["text"]

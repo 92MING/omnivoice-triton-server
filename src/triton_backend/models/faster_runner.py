@@ -29,7 +29,7 @@ def _fallback_max_batch_candidates(requested: int) -> list[int]:
 def _fallback_max_width_candidates(requested: int, min_width: int) -> list[int]:
     requested = max(1, int(requested))
     min_width = max(1, int(min_width))
-    anchors = [64, 128, 160, 256, 512]
+    anchors = [64, 128, 160, 256, 512, 640, 768, 1024]
     candidates = {requested}
 
     for width in reversed(anchors):
@@ -206,8 +206,6 @@ class _CUDAGraphForward:
             plan[512] = _capped(large_batches, self._max_batch_size)
         if self._min_width <= 64 <= self._max_width:
             plan[64] = _capped([4, self._max_batch_size], self._max_batch_size)
-        if self._max_width > 512:
-            plan[self._max_width] = _capped([4, 8], self._max_batch_size)
         return {width: buckets for width, buckets in plan.items() if buckets}
 
     def _prewarm_optional_shapes(self) -> None:
