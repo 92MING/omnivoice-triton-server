@@ -4,7 +4,9 @@
 工作进程、多个 GPU inferer 进程、Triton/hybrid 后端和固定形状 CUDA Graph
 预热。
 
-请求参数和语言列表见：[request.md](request.md)
+请求参数和语言列表见：[request.zh-CN.md](request.zh-CN.md)
+英文请求文档：[request.en.md](request.en.md)
+部署说明：[deployment.zh-CN.md](deployment.zh-CN.md)
 
 ## 快速开始
 

@@ -5,7 +5,9 @@ server runs FastAPI workers for request handling and one or more independent GPU
 inferer processes for model execution.
 
 中文说明: [docs/README.zh-CN.md](docs/README.zh-CN.md)
-Request API and language list: [docs/request.md](docs/request.md)
+Request API and language list: [docs/request.en.md](docs/request.en.md)
+中文请求文档: [docs/request.zh-CN.md](docs/request.zh-CN.md)
+Deployment notes: [docs/deployment.en.md](docs/deployment.en.md)
 
 ## Quick Start
 
@@ -292,4 +294,4 @@ python tests/load_mixed_1000.py --total 1000 --rate 100 --ref-audio /path/to/ref
 Runtime artifacts, logs, generated audio, model weights, and local environment
 files are ignored by `.gitignore`.
 
-See `docs/DEPLOYMENT.md` for operational details.
+See [docs/deployment.en.md](docs/deployment.en.md) for operational details.
